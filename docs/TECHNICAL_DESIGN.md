@@ -107,25 +107,59 @@ review_helper/
             -   `function_scope`: (Future enhancement) Tries to extract the entire function containing the issue.
         -   Returns the extracted code context as a string. Requires `file_utils.is_path_safe` check.
 -   **`llm_service.py`**:
-    -   Defines an interface or base class for LLM interactions to support multiple providers.
-    -   **`load_llm_configurations(config_path: str = "models.yaml") -> Dict[str, Any]`**:
-        -   Loads LLM configurations from the specified YAML file (e.g., `models.yaml`).
-        -   Parses details like API endpoint, model name, API key environment variable name for each uniquely named model.
-        -   Returns a dictionary of model configurations.
-    -   **`list_prompt_templates(prompts_dir: str = "prompts") -> List[str]`**:
-        -   Scans the `prompts/` directory for available `.txt` prompt templates.
-        -   Returns a list of template file names.
-    -   **`load_prompt_template(template_path: str) -> str`**:
-        -   Reads the content of a specified prompt template file.
-        -   Returns the prompt template string.
-    -   **`classify_issue(issue_summary: str, code_context: str, llm_config: Dict[str, Any], prompt_template: str) -> Dict[str, str]`**:
-        -   Takes `llm_config` (a specific model's configuration loaded from `models.yaml`) and a `prompt_template` string.
-        -   Formats the `prompt_template` with `issue_summary` and `code_context`.
-        -   Interacts with the LLM provider specified in `llm_config` (e.g., OpenAI, Ollama, other API).
-        -   Retrieves the API key using the environment variable name specified in `llm_config`.
-        -   Sends the request to the configured LLM.
-        -   Parses the LLM response to extract the classification (e.g., `false positive`, `need fixing`, `very serious`) and any explanation.
-        -   Returns a dictionary with `classification` and `explanation`.
+    -   **`LLMService` class**:
+        -   Handles all LLM-related operations including configuration loading, prompt template management, and issue classification.
+        -   Supports multiple LLM providers (currently OpenAI, extensible for others).
+        -   Uses YAML configuration for LLM settings and environment variables for API keys.
+        -   Key methods:
+            -   `list_prompt_templates(prompts_dir: str = "prompts") -> List[str]`: Lists available prompt templates
+            -   `classify_issue(issue_content: Dict[str, str], llm_name: str, prompt_template: str) -> Dict[str, str]`: Main method for issue classification
+    -   **Configuration Format** (`models.yaml`):
+        ```yaml
+        gpt4:
+          provider: openai
+          model: gpt-4
+          api_key: your-api-key-here  # API key stored directly in config
+        ```
+    -   **Prompt Template Format**:
+        -   Stored as `.txt` files in `prompts/` directory
+        -   Uses Python string formatting for variable substitution
+        -   Expected response format: JSON wrapped in ```json code blocks
+        -   Example prompt template:
+            ```text
+            You are a code review assistant. Analyze the following cppcheck issue and classify it as either:
+            - "false positive": The issue is not a real problem
+            - "need fixing": The issue should be fixed but is not critical
+            - "very serious": The issue is critical and must be fixed immediately
+
+            Issue details:
+            File: {file}
+            Line: {line}
+            Severity: {severity}
+            ID: {id}
+            Summary: {summary}
+            Code Context:
+            {code_context}
+
+            Please provide your analysis in JSON format:
+            ```json
+            {
+                "classification": "one of: false positive, need fixing, very serious",
+                "explanation": "detailed explanation of your reasoning"
+            }
+            ```
+            ```
+        -   Example input dictionary:
+            ```python
+            {
+                "file": "src/main.cpp",
+                "line": "42",
+                "severity": "warning",
+                "id": "nullPointer",
+                "summary": "Possible null pointer dereference: ptr",
+                "code_context": "void process(int* ptr) {\n    if (ptr) {\n        *ptr = 42;\n    }\n}"
+            }
+            ```
 -   **`data_manager.py`**:
     -   Manages all interactions with the SQLite database (`db/issues.db`).
     -   **`init_db()`**: Creates database tables if they don't exist.
