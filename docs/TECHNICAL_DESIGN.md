@@ -162,14 +162,19 @@ review_helper/
             ```
 -   **`data_manager.py`**:
     -   Manages all interactions with the SQLite database (`db/issues.db`).
-    -   **`init_db()`**: Creates database tables if they don't exist.
-    -   **`add_issues(issues: List[Dict[str, Any]])`**: Adds new issues parsed from cppcheck CSV to the database.
-    -   **`get_issue_by_id(issue_id: int) -> Optional[Dict[str, Any]]`**: Retrieves a specific issue with all its LLM classifications.
-    -   **`get_all_issues(filters: Optional[Dict] = None) -> List[Dict[str, Any]]`**: Retrieves all issues, optionally applying filters (e.g., unclassified, specific severity).
-    -   **`add_llm_classification(issue_id: int, llm_model_name: str, context_strategy: str, prompt_template: str, source_code_context: str, classification: str, explanation: Optional[str] = None) -> int`**: Adds a new LLM classification attempt to the database. Returns the ID of the new classification.
-    -   **`update_llm_classification_review(classification_id: int, user_agrees: bool, user_comment: Optional[str] = None)`**: Updates user feedback for a specific LLM classification attempt.
-    -   **`set_issue_true_classification(issue_id: int, classification: str, comment: Optional[str] = None)`**: Sets the final verified classification for an issue.
-    -   **`get_llm_statistics(filters: Optional[Dict] = None) -> Dict[str, Any]`**: Retrieves statistics about LLM performance, context strategies, and prompt templates, optionally filtered by various criteria.
+    -   Implements a context manager `get_db_connection()` for safe database connections.
+    -   Provides comprehensive error logging and exception handling.
+    -   Uses parameterized SQL queries for security against SQL injection.
+    -   Database schema includes a trigger to automatically update timestamps.
+    -   Key functions include:
+       -   **`init_db() -> None`**: Creates database tables and triggers if they don't exist.
+       -   **`add_issues(issues: List[Dict[str, Any]]) -> List[int]`**: Adds new issues parsed from cppcheck CSV to the database. Validates required fields and returns a list of newly created issue IDs.
+       -   **`get_issue_by_id(issue_id: int) -> Optional[Dict[str, Any]]`**: Retrieves a specific issue with all its LLM classifications. Returns None if issue not found.
+       -   **`get_all_issues(filters: Optional[Dict] = None) -> List[Dict[str, Any]]`**: Retrieves all issues, optionally applying filters. Supports filtering by 'status', 'severity', and 'true_classification'.
+       -   **`add_llm_classification(issue_id: int, llm_model_name: str, context_strategy: str, prompt_template: str, source_code_context: str, classification: str, explanation: Optional[str] = None) -> int`**: Adds a new LLM classification attempt to the database. Returns the ID of the new classification. Automatically updates issue status from 'pending_llm' to 'pending_review' when the first classification is added.
+       -   **`update_llm_classification_review(classification_id: int, user_agrees: bool, user_comment: Optional[str] = None) -> bool`**: Updates user feedback for a specific LLM classification attempt. Returns True on success, False if classification not found.
+       -   **`set_issue_true_classification(issue_id: int, classification: str, comment: Optional[str] = None) -> bool`**: Sets the final verified classification for an issue and updates status to 'reviewed'. Validates that classification is one of 'false positive', 'need fixing', or 'very serious'. Returns True on success, False if issue not found.
+       -   **`get_llm_statistics(filters: Optional[Dict] = None) -> Dict[str, Any]`**: Retrieves comprehensive statistics about LLM performance, context strategies, and prompt templates. Supports filtering by 'llm_model_name', 'context_strategy', 'prompt_template', 'date_from', and 'date_to'. Returns a dictionary with statistics on overall accuracy, performance by LLM model, context strategy, prompt template, and classification distribution.
 
 ### 4.3. Configuration (`config.py`)
 
@@ -316,6 +321,10 @@ The primary database will be `db/issues.db`.
     -   The cppcheck `Summary` field, as it can contain commas, should be handled carefully during parsing but is generally safe for display.
 -   **Database Security**:
     -   Use parameterized queries for all database interactions (standard practice with `sqlite3` placeholders) to prevent SQL injection.
+    -   Input validation is performed before database operations (e.g., checking required fields, validating classification values).
+    -   The `data_manager.py` implementation uses a context manager pattern for database connections to ensure proper resource cleanup.
+    -   Comprehensive error handling with specific error messages in logs but generic responses to users.
+    -   Database directory is created with proper permissions if it doesn't exist.
 -   **Error Handling**:
     -   Gracefully handle errors such as missing files, incorrect LLM API responses, or database connection issues. Do not expose sensitive error details to the frontend.
 
