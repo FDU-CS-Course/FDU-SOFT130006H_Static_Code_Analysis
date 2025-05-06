@@ -93,11 +93,11 @@ def _process_rows(rows: List[Dict[str, str]]) -> List[Dict[str, Any]]:
             
             # Create a new dict to avoid modifying the original
             issue = {
-                'File': row['File'],
-                'Line': row['Line'],
-                'Severity': row['Severity'],
-                'Id': row['Id'],
-                'Summary': row['Summary']
+                'cppcheck_file': row['File'],
+                'cppcheck_line': row['Line'],
+                'cppcheck_severity': row['Severity'],
+                'cppcheck_id': row['Id'],
+                'cppcheck_summary': row['Summary']
             }
             issues.append(issue)
             
