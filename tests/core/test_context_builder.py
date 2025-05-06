@@ -137,6 +137,73 @@ Line 10"""
 6: Line 6"""
         
         self.assertEqual(context, expected)
+    
+    def test_build_context_file_scope(self):
+        """Test building context with file_scope strategy."""
+        context = self.context_builder.build_context(
+            "test.cpp",
+            line_number=5,
+            strategy="file_scope"
+        )
+        
+        expected = """1: Line 1
+2: Line 2
+3: Line 3
+4: Line 4
+5: >>> Line 5 <<<
+6: Line 6
+7: Line 7
+8: Line 8
+9: Line 9
+10: Line 10"""
+        
+        self.assertEqual(context, expected)
+    
+    def test_build_context_file_scope_no_highlight(self):
+        """Test building context with file_scope strategy without highlighting."""
+        context = self.context_builder.build_context(
+            "test.cpp",
+            line_number=5,
+            strategy="file_scope",
+            highlight_issue_line=False
+        )
+        
+        expected = """1: Line 1
+2: Line 2
+3: Line 3
+4: Line 4
+5: Line 5
+6: Line 6
+7: Line 7
+8: Line 8
+9: Line 9
+10: Line 10"""
+        
+        self.assertEqual(context, expected)
+    
+    def test_build_context_file_scope_exceeds_max_lines(self):
+        """Test building context with file_scope when file exceeds max lines."""
+        # Create a test function for this specific test
+        long_content = "\n".join([f"Line {i}" for i in range(1, 21)])
+        long_file_path = os.path.join(self.test_dir, "long.cpp")
+        with open(long_file_path, "w") as f:
+            f.write(long_content)
+            
+        try:
+            # Test with max_lines less than file length
+            context = self.context_builder.build_context(
+                "long.cpp",
+                line_number=10,
+                strategy="file_scope",
+                max_lines=15
+            )
+            
+            # Should fallback to a different strategy
+            self.assertIsNotNone(context)
+            self.assertLess(len(context.split('\n')), 21)  # Should be fewer lines than the whole file
+        finally:
+            # Clean up
+            os.remove(long_file_path)
 
 if __name__ == "__main__":
     unittest.main() 

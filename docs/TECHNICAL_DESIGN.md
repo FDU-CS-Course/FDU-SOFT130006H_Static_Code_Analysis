@@ -59,7 +59,8 @@ review_helper/
 │   ├── 01_Load_Issues.py    # Page for loading/viewing cppcheck issues
 │   ├── 02_Run_LLM.py        # Page for selecting LLM, prompt, and running processing
 │   ├── 03_Review_Issues.py  # Page for reviewing LLM classifications
-│   └── 04_Statistics.py     # Page for comparing LLM and context strategy performance
+│   ├── 04_Statistics.py     # Page for comparing LLM and context strategy performance
+│   └── 05_LLM_Responses.py  # Page for inspecting detailed LLM interaction records
 ├── prompts/                 # Directory for LLM prompt templates
 │   ├── classification_default.txt # Example prompt template
 │   └── ...                  # Other prompt templates
@@ -105,6 +106,14 @@ review_helper/
         -   Provides an interface for users to validate or correct LLM classifications and add comments.
     -   **`04_Statistics.py`**:
         -   Displays statistics related to LLM performance and context strategy effectiveness.
+    -   **`05_LLM_Responses.py`**:
+        -   Displays detailed records of LLM interactions:
+            *   Full prompts sent to the LLM
+            *   Raw responses received from the LLM
+            *   Token usage statistics (prompt tokens, completion tokens, total tokens)
+            *   Response times
+            *   Model parameters used
+    *   The page allows exporting statistics in various formats (CSV, JSON) for further analysis.
 
 ### 4.2. Backend Logic (`core/`)
 
@@ -123,6 +132,7 @@ review_helper/
             -   Possible strategies:
                 -   `fixed_lines`: N lines before and after the issue line.
                 -   `function_scope`: Intelligently extracts the entire function containing the issue by analyzing code structure.
+                -   `file_scope`: Extracts the entire file content with the issue line highlighted, with a configurable maximum line limit.
             -   Returns the extracted code context as a string with line numbers, or None if extraction fails.
             -   Includes comprehensive error handling with fallback to simpler strategies when needed.
 -   **`llm_service.py`**:
@@ -130,9 +140,12 @@ review_helper/
         -   Handles all LLM-related operations including configuration loading, prompt template management, and issue classification.
         -   Supports multiple LLM providers (currently OpenAI, extensible for others).
         -   Uses YAML configuration for LLM settings and environment variables for API keys.
+        -   Tracks detailed information about LLM interactions, including full prompts, responses, token counts, and performance metrics.
         -   Key methods:
             -   `list_prompt_templates(prompts_dir: str = "prompts") -> List[str]`: Lists available prompt templates
-            -   `classify_issue(issue_content: Dict[str, str], llm_name: str, prompt_template: str) -> Dict[str, str]`: Main method for issue classification
+            -   `classify_issue(issue_content: Dict[str, str], llm_name: str, prompt_template: str) -> Tuple[Dict[str, str], Dict[str, Any]]`: Main method for issue classification, returns both the classification result and detailed response metrics
+            -   `format_prompt(prompt_template: str, issue_content: Dict[str, str]) -> str`: Formats a prompt template with issue content
+            -   `get_token_counts(text: str, model: str) -> Dict[str, int]`: Estimates token counts for a given text and model
     -   **Configuration Format** (`models.yaml`):
         ```yaml
         gpt4:
@@ -200,6 +213,9 @@ review_helper/
        -   **`update_llm_classification_review(classification_id: int, user_agrees: bool, user_comment: Optional[str] = None) -> bool`**: Updates user feedback for a specific LLM classification attempt. Returns True on success, False if classification not found.
        -   **`set_issue_true_classification(issue_id: int, classification: str, comment: Optional[str] = None) -> bool`**: Sets the final verified classification for an issue and updates status to 'reviewed'. Validates that classification is one of 'false positive', 'need fixing', or 'very serious'. Returns True on success, False if issue not found.
        -   **`get_llm_statistics(filters: Optional[Dict] = None) -> Dict[str, Any]`**: Retrieves comprehensive statistics about LLM performance, context strategies, and prompt templates. Supports filtering by 'llm_model_name', 'context_strategy', 'prompt_template', 'date_from', and 'date_to'. Returns a dictionary with statistics on overall accuracy, performance by LLM model, context strategy, prompt template, and classification distribution.
+       -   **`add_llm_response(classification_id: int, full_prompt: str, full_response: str, prompt_tokens: Optional[int] = None, completion_tokens: Optional[int] = None, total_tokens: Optional[int] = None, response_time_ms: Optional[int] = None, model_parameters: Optional[Dict] = None) -> int`**: Adds a record of an LLM interaction to the database, including the full prompt, response, token counts, and performance metrics. Returns the ID of the new record.
+       -   **`get_llm_responses(filters: Optional[Dict] = None) -> List[Dict[str, Any]]`**: Retrieves detailed records of LLM interactions. Supports filtering by 'classification_id', 'issue_id', 'llm_model_name', 'date_from', 'date_to', and token usage thresholds. Returns a list of dictionaries, each representing an LLM response record.
+       -   **`get_token_usage_statistics(filters: Optional[Dict] = None) -> Dict[str, Any]`**: Retrieves statistics about token usage across different LLM models, prompt templates, and context strategies. Returns a dictionary with metrics such as average tokens per request, total token usage, and token usage distribution.
 
 ### 4.3. Configuration (`config.py`)
 
@@ -208,6 +224,7 @@ review_helper/
 -   **`DEFAULT_PROMPT_TEMPLATE_FILENAME: Optional[str]`**: (NEW) Filename of the default prompt template from the `prompts/` directory (e.g., "classification_default.txt").
 -   **`DEFAULT_CONTEXT_STRATEGY: str`**: Default strategy for context building (e.g., "fixed_lines").
 -   **`CONTEXT_LINES_COUNT: int`**: Number of lines to include before and after the issue line for the "fixed_lines" strategy.
+-   **`FILE_SCOPE_MAX_LINES: int`**: Maximum number of lines to include for the "file_scope" strategy (default: 1000).
 -   **`MODELS_CONFIG_PATH: str = "models.yaml"`**: (NEW) Path to the LLM configurations file.
 -   **`PROMPTS_DIR_PATH: str = "prompts"`**: (NEW) Path to the directory containing prompt templates.
 
@@ -256,6 +273,21 @@ The primary database will be `db/issues.db`.
 | `user_agrees`         | BOOLEAN                   |                                   | User's feedback: `True` if LLM was correct, `False` if incorrect.           |
 | `user_comment`        | TEXT                      |                                   | Optional comment from the user during review.                               |
 
+**Table: `llm_responses`**
+
+| Column                | Type                      | Constraints                       | Description                                                                 |
+| --------------------- | ------------------------- | --------------------------------- | --------------------------------------------------------------------------- |
+| `id`                  | INTEGER                   | PRIMARY KEY AUTOINCREMENT         | Unique identifier for this LLM response record.                             |
+| `classification_id`   | INTEGER                   | NOT NULL, FOREIGN KEY             | References `llm_classifications.id`.                                        |
+| `full_prompt`         | TEXT                      | NOT NULL                          | The complete prompt sent to the LLM.                                        |
+| `full_response`       | TEXT                      | NOT NULL                          | The complete raw response received from the LLM.                            |
+| `prompt_tokens`       | INTEGER                   |                                   | Number of tokens in the prompt.                                             |
+| `completion_tokens`   | INTEGER                   |                                   | Number of tokens in the completion/response.                                |
+| `total_tokens`        | INTEGER                   |                                   | Total number of tokens used in the interaction.                             |
+| `response_time_ms`    | INTEGER                   |                                   | Response time in milliseconds.                                              |
+| `model_parameters`    | TEXT                      |                                   | JSON string of model parameters used (temperature, etc.).                   |
+| `timestamp`           | TIMESTAMP                 | NOT NULL DEFAULT CURRENT_TIMESTAMP | When the LLM interaction occurred.                                          |
+
 *An SQLite trigger can be used to automatically update `updated_at` in the `issues` table.*
 
 ## 6. Workflow
@@ -282,9 +314,12 @@ The primary database will be `db/issues.db`.
         *   `utils.file_utils.is_path_safe()` validates this path against `config.PROJECT_ROOT_DIR`. **If unsafe, the issue is flagged, and LLM processing is skipped for it.**
         *   If safe, `context_builder.py` reads the source file and extracts the `source_code_context` based on the selected strategy.
         *   `llm_service.py` loads the selected prompt template content.
-        *   `llm_service.py` uses the selected `llm_config` and `prompt_template` to call `classify_issue()`.
-        *   The LLM's `classification` and `explanation` are received.
+        *   `llm_service.py` formats the full prompt by combining the template with issue details and source code context.
+        *   `llm_service.py` uses the selected `llm_config` and formatted prompt to call the LLM API, recording the start and end time.
+        *   The LLM's `classification` and `explanation` are extracted from the response.
+        *   Token usage information (prompt tokens, completion tokens, total tokens) is obtained from the LLM API response or estimated using a tokenizer.
         *   `data_manager.py` adds a new record to the `llm_classifications` table with the classification details.
+        *   `data_manager.py` also adds a detailed record to the `llm_responses` table, including the full prompt, raw response, token counts, response time, and model parameters.
         *   If this is the first classification for the issue, its `status` is updated to `pending_review`.
     *   The page displays progress (e.g., number of issues processed/remaining, errors).
     *   User has an option to "Stop Processing". This will require the backend processing loop to check a flag (e.g., in Streamlit session state or a temporary marker) between issues and halt if the flag is set.
@@ -310,6 +345,7 @@ The primary database will be `db/issues.db`.
         *   Success rate of different prompt templates
         *   Distribution of classifications (false positives vs. need fixing vs. very serious)
         *   Time-based analysis of LLM performance
+        *   Token usage statistics and response times
     *   Users can filter statistics by:
         *   Date range
         *   Issue severity
@@ -317,6 +353,22 @@ The primary database will be `db/issues.db`.
         *   Context strategies
         *   Prompt templates
     *   The page allows exporting statistics in various formats (CSV, JSON) for further analysis.
+
+6.  **LLM Response Details (`pages/05_LLM_Responses.py`)**:
+    *   The user navigates to the LLM responses page.
+    *   The page displays detailed records of LLM interactions:
+        *   Full prompts sent to the LLM
+        *   Raw responses received from the LLM
+        *   Token usage statistics (prompt tokens, completion tokens, total tokens)
+        *   Response times
+        *   Model parameters used
+    *   Users can filter responses by:
+        *   LLM model
+        *   Date range
+        *   Issue ID or classification ID
+        *   Token usage thresholds
+    *   The page provides insights into LLM behavior, helping users optimize prompts and model selection.
+    *   Responses can be exported for further analysis or debugging.
 
 ## 7. Extensibility
 
@@ -328,6 +380,10 @@ The primary database will be `db/issues.db`.
     -   `context_builder.py` will allow for different strategies to be implemented and selected.
     -   New strategies (e.g., AST-based context extraction) can be added as new functions or classes.
     -   The choice of strategy can be made configurable.
+    -   Currently supported strategies:
+        - `fixed_lines`: Extracts a fixed number of lines before and after the issue line.
+        - `function_scope`: Extracts the entire function containing the issue.
+        - `file_scope`: Extracts the entire file content with the issue line highlighted, with a safety limit on maximum lines.
 -   **Prompt Templating**: (NEW)
     -   Users can create and manage multiple prompt templates in `.txt` files within the `prompts/` directory.
     -   The `02_Run_LLM.py` page allows users to select which prompt template to use for a processing run, enabling experimentation with different prompting techniques.
@@ -367,3 +423,6 @@ The primary database will be `db/issues.db`.
 -   **User Authentication**: If multiple users need to access the tool with distinct roles or data.
 -   **Reporting & Analytics**: Dashboards to show LLM accuracy, types of issues found, review progress, etc.
 -   **Configuration UI**: Allow setting `PROJECT_ROOT_DIR` and LLM settings through the UI instead of just config files/env vars, especially for initial setup.
+-   **Advanced Token Usage Analytics**: Implement cost estimation, usage tracking by team/project, and optimization recommendations based on token usage patterns.
+-   **Prompt Optimization**: Automated tools to analyze which prompts are most effective and suggest improvements based on token usage and accuracy metrics.
+-   **Model Parameter Tuning**: Interactive tools to experiment with different model parameters (temperature, top_p, etc.) and analyze their impact on classification accuracy and token usage.

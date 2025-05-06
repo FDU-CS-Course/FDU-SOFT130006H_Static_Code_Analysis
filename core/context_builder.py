@@ -36,7 +36,8 @@ class ContextBuilder:
         Args:
             file_path (str): Absolute path to the source file.
             line_number (int): Line number where the issue was found.
-            strategy (str): Strategy to use for building context. Options: "fixed_lines" or "function_scope".
+            strategy (str): Strategy to use for building context. 
+                            Options: "fixed_lines", "function_scope", or "file_scope".
             **kwargs: Additional strategy-specific parameters.
         
         Returns:
@@ -49,12 +50,15 @@ class ContextBuilder:
         # Validate file path
         if not is_path_safe(file_path, self.project_root):
             return None
-            
+        
+        print(f"Building context for {file_path}:{line_number} with strategy {strategy}, kwargs: {kwargs}")
         # Select strategy
         if strategy == "fixed_lines":
             return self._build_fixed_lines_context(file_path, line_number, **kwargs)
         elif strategy == "function_scope":
             return self._build_function_scope_context(file_path, line_number, **kwargs)
+        elif strategy == "file_scope":
+            return self._build_file_scope_context(file_path, line_number, **kwargs)
         else:
             raise ValueError(f"Unsupported context building strategy: {strategy}")
     
@@ -206,5 +210,65 @@ class ContextBuilder:
             
         except Exception as e:
             print(f"Error building function scope context: {str(e)}")
+            # Fallback to fixed lines context on error
+            return self._build_fixed_lines_context(file_path, line_number, **kwargs)
+    
+    def _build_file_scope_context(
+        self,
+        file_path: str,
+        line_number: int,
+        max_lines: int = 1000,  # Safety limit for file size
+        highlight_issue_line: bool = True,  # Whether to highlight the issue line
+        **kwargs
+    ) -> Optional[str]:
+        """
+        Build context by extracting the entire file content.
+        
+        Args:
+            file_path (str): Absolute path to the source file.
+            line_number (int): Line number where the issue was found.
+            max_lines (int): Maximum number of lines to include to prevent excessive context.
+            highlight_issue_line (bool): Whether to highlight the issue line.
+            **kwargs: Additional parameters (unused).
+            
+        Returns:
+            Optional[str]: The extracted file context, or None if:
+                         - The file cannot be read
+                         - The file is too large (exceeds max_lines)
+        """
+        try:
+            # Count file lines first to check if it exceeds max_lines
+            with open(file_path, 'r', encoding='utf-8') as f:
+                file_line_count = sum(1 for _ in f)
+                
+            if file_line_count > max_lines:
+                # If file is too large, fallback to function scope or fixed lines
+                context = self._build_function_scope_context(file_path, line_number, **kwargs)
+                if context is not None:
+                    return context
+                return self._build_fixed_lines_context(file_path, line_number, **kwargs)
+                
+            # Read the entire file
+            context = read_file_lines(file_path, 1, file_line_count)
+            if not context:
+                return None
+                
+            # Add line numbers to the context
+            lines = context.split('\n')
+            numbered_lines = []
+            
+            for i, line in enumerate(lines):
+                line_num = i + 1
+                
+                # Optionally highlight the issue line
+                if highlight_issue_line and line_num == line_number:
+                    numbered_lines.append(f"{line_num}: >>> {line} <<<")
+                else:
+                    numbered_lines.append(f"{line_num}: {line}")
+            
+            return '\n'.join(numbered_lines)
+            
+        except Exception as e:
+            print(f"Error building file scope context: {str(e)}")
             # Fallback to fixed lines context on error
             return self._build_fixed_lines_context(file_path, line_number, **kwargs) 

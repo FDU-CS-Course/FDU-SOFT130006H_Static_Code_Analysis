@@ -17,6 +17,8 @@ DEFAULT_PROMPT_TEMPLATE_FILENAME: Optional[str] = "classification_default.txt"
 # Context building settings
 DEFAULT_CONTEXT_STRATEGY: str = "fixed_lines"
 CONTEXT_LINES_COUNT: int = 5
+CONTENT_LINES_MAX_COUNT: int = 1000  # Maximum lines to include in file-scope context
+FILE_SCOPE_MAX_LINES: int = 1000  # Maximum lines to include in file-scope context
 
 # Paths to configuration files
 MODELS_CONFIG_PATH: str = "models.yaml"

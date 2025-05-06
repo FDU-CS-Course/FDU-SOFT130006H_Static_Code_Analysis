@@ -42,11 +42,12 @@ Example input dictionary:
 
 import os
 import json
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Tuple
 import yaml
 from pathlib import Path
 import openai
 from dotenv import load_dotenv
+import time
 
 # Load environment variables
 load_dotenv()
@@ -116,7 +117,7 @@ class LLMService:
     def classify_issue(self, 
                       issue_content: Dict[str, str], 
                       llm_name: str, 
-                      prompt_template: str) -> Dict[str, str]:
+                      prompt_template: str) -> Tuple[Dict[str, str], Dict[str, Any]]:
         """Classify an issue using specified LLM.
         
         Args:
@@ -125,7 +126,9 @@ class LLMService:
             prompt_template: Filename of the prompt template
             
         Returns:
-            Dictionary containing classification and explanation
+            Tuple containing:
+              - Dictionary with classification and explanation
+              - Dictionary with response metrics (tokens, time, etc.)
             
         Raises:
             KeyError: If LLM configuration not found
@@ -162,7 +165,7 @@ class LLMService:
             
     def _classify_with_openai(self, 
                             prompt: str, 
-                            config: Dict[str, Any]) -> Dict[str, str]:
+                            config: Dict[str, Any]) -> Tuple[Dict[str, str], Dict[str, Any]]:
         """Classify using OpenAI API.
         
         Args:
@@ -170,7 +173,9 @@ class LLMService:
             config: OpenAI configuration dictionary
             
         Returns:
-            Dictionary with classification and explanation
+            Tuple containing:
+              - Dictionary with classification and explanation
+              - Dictionary with response metrics (tokens, time, etc.)
             
         Raises:
             RuntimeError: If API call fails or response is invalid
@@ -189,21 +194,45 @@ class LLMService:
         openai.api_key = api_key
         openai.base_url = config.get('base_url', "https://api.openai.com/v1")
         
+        # Model parameters
+        model_params = {
+            'model': config['model'],
+            'temperature': config.get('temperature', 0.0),
+            'max_tokens': config.get('max_tokens', 2000),
+            'top_p': config.get('top_p', 1.0)
+        }
+        
         try:
-            print(f"Calling OpenAI with model: {config['model']}")
+            # Measure response time
+            start_time = time.time()
             
             response = openai.chat.completions.create(
-                model=config['model'],
+                model=model_params['model'],
                 messages=[
                     {"role": "system", "content": "You are a code review assistant."},
                     {"role": "user", "content": prompt}
-                ]
+                ],
+                temperature=model_params['temperature'],
+                max_tokens=model_params['max_tokens'],
+                top_p=model_params['top_p']
             )
             
-            print(f"Response: {response}")
+            # Calculate response time in milliseconds
+            response_time_ms = int((time.time() - start_time) * 1000)
+            
+            # Extract content
+            content = response.choices[0].message.content
+            
+            # Get token usage from response
+            usage = {}
+            if hasattr(response, 'usage'):
+                usage = {
+                    'prompt_tokens': response.usage.prompt_tokens,
+                    'completion_tokens': response.usage.completion_tokens,
+                    'total_tokens': response.usage.total_tokens
+                }
             
             # Extract JSON from response
-            content = response.choices[0].message.content
             json_str = content.split("```json")[1].split("```")[0].strip()
             
             try:
@@ -215,8 +244,19 @@ class LLMService:
                 valid_classifications = ["false positive", "need fixing", "very serious"]
                 if result["classification"] not in valid_classifications:
                     raise ValueError(f"Invalid classification value: {result['classification']}")
-                    
-                return result
+                
+                # Prepare response metrics
+                response_metrics = {
+                    'full_prompt': prompt,
+                    'full_response': content,
+                    'prompt_tokens': usage.get('prompt_tokens'),
+                    'completion_tokens': usage.get('completion_tokens'),
+                    'total_tokens': usage.get('total_tokens'),
+                    'response_time_ms': response_time_ms,
+                    'model_parameters': model_params
+                }
+                
+                return result, response_metrics
                 
             except json.JSONDecodeError as e:
                 raise RuntimeError(f"Invalid JSON response from LLM: {str(e)}")
@@ -224,4 +264,46 @@ class LLMService:
                 raise RuntimeError(f"Invalid response structure: {str(e)}")
             
         except Exception as e:
-            raise RuntimeError(f"OpenAI API error: {str(e)}") 
+            raise RuntimeError(f"OpenAI API error: {str(e)}")
+            
+    def format_prompt(self, 
+                    prompt_template: str, 
+                    issue_content: Dict[str, str]) -> str:
+        """Format a prompt template with issue content.
+        
+        Args:
+            prompt_template: Filename of the prompt template
+            issue_content: Dictionary containing issue details
+            
+        Returns:
+            Formatted prompt string
+            
+        Raises:
+            ValueError: If prompt template not found
+        """
+        try:
+            prompt_template_path = os.path.join("prompts", prompt_template)
+            prompt_content = self.load_prompt_template(prompt_template_path)
+            return prompt_content.format(**issue_content)
+        except FileNotFoundError:
+            raise ValueError(f"Prompt template not found: {prompt_template}")
+            
+    def get_token_counts(self, text: str, model: str) -> Dict[str, int]:
+        """Estimate token counts for a given text and model.
+        
+        This is a fallback method when the API doesn't return token counts.
+        For OpenAI, a rough estimate is 1 token ~= 4 chars for English text.
+        
+        Args:
+            text: Text to count tokens for
+            model: Model name (used to select appropriate tokenizer)
+            
+        Returns:
+            Dictionary with estimated token count
+        """
+        # Very rough estimate for English text
+        estimated_tokens = len(text) // 4
+        
+        return {
+            'estimated_tokens': estimated_tokens
+        } 

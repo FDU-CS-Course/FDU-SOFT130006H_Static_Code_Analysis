@@ -136,8 +136,8 @@ def process_issues(issues: List[Dict[str, Any]],
                 abs_file_path, 
                 line_number, 
                 strategy=context_strategy,
-                lines_before=config.CONTEXT_LINES_COUNT,
-                lines_after=config.CONTEXT_LINES_COUNT
+                lines_before=context_lines,
+                lines_after=context_lines,
             )
             
             if code_context is None:
@@ -153,8 +153,8 @@ def process_issues(issues: List[Dict[str, Any]],
                 'code_context': code_context
             }
             
-            # Call LLM for classification
-            llm_result = llm_service.classify_issue(
+            # Call LLM for classification - now returns both result and response metrics
+            llm_result, response_metrics = llm_service.classify_issue(
                 issue_content=issue_content,
                 llm_name=llm_config_name,
                 prompt_template=prompt_template
@@ -167,7 +167,7 @@ def process_issues(issues: List[Dict[str, Any]],
                 print(f"Warning: Invalid classification '{classification}' from LLM. Using 'unknown' instead.")
                 classification = "unknown"
             
-            # Save classification to database
+            # Save classification and response details to database
             add_llm_classification(
                 issue_id=issue['id'],
                 llm_model_name=llm_config_name,
@@ -175,7 +175,14 @@ def process_issues(issues: List[Dict[str, Any]],
                 prompt_template=prompt_template,
                 source_code_context=code_context,
                 classification=classification,
-                explanation=llm_result.get('explanation', '')
+                explanation=llm_result.get('explanation', ''),
+                full_prompt=response_metrics.get('full_prompt', ''),
+                full_response=response_metrics.get('full_response', ''),
+                prompt_tokens=response_metrics.get('prompt_tokens'),
+                completion_tokens=response_metrics.get('completion_tokens'),
+                total_tokens=response_metrics.get('total_tokens'),
+                response_time_ms=response_metrics.get('response_time_ms'),
+                model_parameters=response_metrics.get('model_parameters')
             )
             
             # Add to processed issues
@@ -185,9 +192,7 @@ def process_issues(issues: List[Dict[str, Any]],
                 'line': line_number,
                 'classification': classification
             })
-            
-            # Small delay to prevent API rate limiting
-            time.sleep(0.5)
+            print(f"[{i+1} / {len(issues)}] Processed issue {issue['id']} with classification {classification}")
             
         except Exception as e:
             # Add to failed issues
@@ -281,7 +286,7 @@ with col3:
     # Context strategy selection
     selected_strategy = st.selectbox(
         "Select Context Strategy",
-        options=["fixed_lines", "function_scope"],
+        options=["fixed_lines", "function_scope", "file_scope"],
         index=0 if config.DEFAULT_CONTEXT_STRATEGY == "fixed_lines" else 1
     )
     
@@ -290,7 +295,7 @@ with col3:
         context_lines = st.number_input(
             "Context Lines (before/after)",
             min_value=1,
-            max_value=20,
+            max_value=config.CONTENT_LINES_MAX_COUNT,
             value=config.CONTEXT_LINES_COUNT
         )
     else:

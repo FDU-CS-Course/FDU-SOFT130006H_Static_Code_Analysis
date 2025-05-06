@@ -15,7 +15,7 @@ DB_INITIALIZED:bool = False
 
 import os
 import sqlite3
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Optional, Tuple, Union
 from datetime import datetime
 import json
 import logging
@@ -62,6 +62,22 @@ CREATE TABLE IF NOT EXISTS llm_classifications (
     user_agrees BOOLEAN,
     user_comment TEXT,
     FOREIGN KEY (issue_id) REFERENCES issues(id)
+)
+"""
+
+CREATE_LLM_RESPONSES_TABLE = """
+CREATE TABLE IF NOT EXISTS llm_responses (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    classification_id INTEGER NOT NULL,
+    full_prompt TEXT NOT NULL,
+    full_response TEXT NOT NULL,
+    prompt_tokens INTEGER,
+    completion_tokens INTEGER,
+    total_tokens INTEGER,
+    response_time_ms INTEGER,
+    model_parameters TEXT,
+    timestamp TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (classification_id) REFERENCES llm_classifications(id)
 )
 """
 
@@ -115,6 +131,7 @@ def init_db() -> None:
             cursor = conn.cursor()
             cursor.execute(CREATE_ISSUES_TABLE)
             cursor.execute(CREATE_LLM_CLASSIFICATIONS_TABLE)
+            cursor.execute(CREATE_LLM_RESPONSES_TABLE)
             cursor.execute(CREATE_UPDATE_TRIGGER)
             conn.commit()
             logger.info("Database initialized successfully.")
@@ -276,8 +293,15 @@ def add_llm_classification(
     prompt_template: str, 
     source_code_context: str, 
     classification: str, 
-    explanation: Optional[str] = None
-) -> int:
+    explanation: Optional[str] = None,
+    full_prompt: Optional[str] = None,
+    full_response: Optional[str] = None,
+    prompt_tokens: Optional[int] = None,
+    completion_tokens: Optional[int] = None,
+    total_tokens: Optional[int] = None,
+    response_time_ms: Optional[int] = None,
+    model_parameters: Optional[Dict] = None
+) -> Union[int, Tuple[int, int]]:
     """
     Add a new LLM classification attempt to the database.
     
@@ -289,9 +313,17 @@ def add_llm_classification(
         source_code_context (str): Code context provided to the LLM.
         classification (str): Classification by LLM.
         explanation (Optional[str]): Optional explanation from the LLM.
+        full_prompt (Optional[str]): The complete prompt sent to the LLM. If provided, a record will be added to llm_responses.
+        full_response (Optional[str]): The complete raw response from the LLM. If provided, a record will be added to llm_responses.
+        prompt_tokens (Optional[int]): Number of tokens in the prompt.
+        completion_tokens (Optional[int]): Number of tokens in the completion/response.
+        total_tokens (Optional[int]): Total number of tokens used in the interaction.
+        response_time_ms (Optional[int]): Response time in milliseconds.
+        model_parameters (Optional[Dict]): Dictionary of model parameters used (temperature, etc.).
         
     Returns:
-        int: ID of the newly created classification.
+        Union[int, Tuple[int, int]]: If full_prompt and full_response are provided, returns a tuple of
+                                     (classification_id, response_id), otherwise just classification_id.
         
     Raises:
         sqlite3.Error: If a database error occurs.
@@ -326,6 +358,26 @@ def add_llm_classification(
             """, (issue_id,))
             
             conn.commit()
+            
+            # If full prompt and response are provided, add a record to llm_responses
+            response_id = None
+            if full_prompt and full_response:
+                try:
+                    response_id = add_llm_response(
+                        classification_id=classification_id,
+                        full_prompt=full_prompt,
+                        full_response=full_response,
+                        prompt_tokens=prompt_tokens,
+                        completion_tokens=completion_tokens,
+                        total_tokens=total_tokens,
+                        response_time_ms=response_time_ms,
+                        model_parameters=model_parameters
+                    )
+                    return (classification_id, response_id)
+                except Exception as e:
+                    logger.error(f"Failed to add LLM response for classification {classification_id}: {e}")
+                    # Still return the classification_id even if adding the response fails
+            
             return classification_id
     except sqlite3.Error as e:
         logger.error(f"Failed to add classification: {e}")
@@ -594,4 +646,287 @@ def get_llm_statistics(filters: Optional[Dict] = None) -> Dict[str, Any]:
             }
     except sqlite3.Error as e:
         logger.error(f"Failed to get statistics: {e}")
+        raise
+
+def add_llm_response(
+    classification_id: int, 
+    full_prompt: str, 
+    full_response: str, 
+    prompt_tokens: Optional[int] = None, 
+    completion_tokens: Optional[int] = None, 
+    total_tokens: Optional[int] = None, 
+    response_time_ms: Optional[int] = None, 
+    model_parameters: Optional[Dict] = None
+) -> int:
+    """
+    Add a record of an LLM interaction to the database.
+    
+    Args:
+        classification_id (int): The ID of the llm_classification this response is linked to.
+        full_prompt (str): The complete prompt sent to the LLM.
+        full_response (str): The complete raw response received from the LLM.
+        prompt_tokens (Optional[int]): Number of tokens in the prompt.
+        completion_tokens (Optional[int]): Number of tokens in the completion/response.
+        total_tokens (Optional[int]): Total number of tokens used in the interaction.
+        response_time_ms (Optional[int]): Response time in milliseconds.
+        model_parameters (Optional[Dict]): Dictionary of model parameters used (temperature, etc.).
+        
+    Returns:
+        int: The ID of the new llm_response record.
+        
+    Raises:
+        sqlite3.Error: If a database error occurs.
+        ValueError: If the classification_id is invalid.
+    """
+    # Convert model_parameters dict to JSON string if provided
+    model_parameters_json = None
+    if model_parameters:
+        try:
+            model_parameters_json = json.dumps(model_parameters)
+        except (TypeError, ValueError) as e:
+            logger.warning(f"Failed to serialize model parameters: {e}")
+            # Still continue with the rest of the data
+    
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            
+            # Check if the classification_id exists
+            cursor.execute("SELECT id FROM llm_classifications WHERE id = ?", (classification_id,))
+            if not cursor.fetchone():
+                raise ValueError(f"Invalid classification_id: {classification_id}")
+            
+            cursor.execute("""
+                INSERT INTO llm_responses (
+                    classification_id, full_prompt, full_response, 
+                    prompt_tokens, completion_tokens, total_tokens,
+                    response_time_ms, model_parameters
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                classification_id,
+                full_prompt,
+                full_response,
+                prompt_tokens,
+                completion_tokens,
+                total_tokens,
+                response_time_ms,
+                model_parameters_json
+            ))
+            
+            response_id = cursor.lastrowid
+            conn.commit()
+            logger.info(f"Added LLM response record {response_id} for classification {classification_id}")
+            return response_id
+    except sqlite3.Error as e:
+        logger.error(f"Failed to add LLM response: {e}")
+        raise
+
+def get_llm_responses(filters: Optional[Dict] = None) -> List[Dict[str, Any]]:
+    """
+    Retrieve detailed records of LLM interactions.
+    
+    Args:
+        filters (Optional[Dict]): Dictionary of filter conditions.
+            Supported filters: 'classification_id', 'issue_id', 'llm_model_name',
+            'date_from', 'date_to', 'min_total_tokens', 'max_total_tokens'.
+            
+    Returns:
+        List[Dict[str, Any]]: List of LLM response records.
+        
+    Raises:
+        sqlite3.Error: If a database error occurs.
+    """
+    # Start with a base query that joins llm_responses with llm_classifications
+    # to get access to issue_id and llm_model_name
+    query = """
+        SELECT 
+            r.id, r.classification_id, r.full_prompt, r.full_response,
+            r.prompt_tokens, r.completion_tokens, r.total_tokens,
+            r.response_time_ms, r.model_parameters, r.timestamp,
+            c.issue_id, c.llm_model_name
+        FROM 
+            llm_responses r
+        JOIN 
+            llm_classifications c ON r.classification_id = c.id
+    """
+    
+    conditions = []
+    params = []
+    
+    if filters:
+        if 'classification_id' in filters:
+            conditions.append("r.classification_id = ?")
+            params.append(filters['classification_id'])
+        
+        if 'issue_id' in filters:
+            conditions.append("c.issue_id = ?")
+            params.append(filters['issue_id'])
+        
+        if 'llm_model_name' in filters:
+            conditions.append("c.llm_model_name = ?")
+            params.append(filters['llm_model_name'])
+        
+        if 'date_from' in filters:
+            if isinstance(filters['date_from'], datetime):
+                date_from = filters['date_from']
+            else:
+                # Assume it's a date object, convert to datetime at start of day
+                date_from = datetime.combine(filters['date_from'], datetime.min.time())
+            conditions.append("r.timestamp >= ?")
+            params.append(date_from)
+        
+        if 'date_to' in filters:
+            if isinstance(filters['date_to'], datetime):
+                date_to = filters['date_to']
+            else:
+                # Assume it's a date object, convert to datetime at end of day
+                date_to = datetime.combine(filters['date_to'], datetime.max.time())
+            conditions.append("r.timestamp <= ?")
+            params.append(date_to)
+        
+        if 'min_total_tokens' in filters and filters['min_total_tokens'] > 0:
+            conditions.append("r.total_tokens >= ?")
+            params.append(filters['min_total_tokens'])
+        
+        if 'max_total_tokens' in filters and filters['max_total_tokens'] < 10000:  # Arbitrary high limit
+            conditions.append("r.total_tokens <= ?")
+            params.append(filters['max_total_tokens'])
+    
+    if conditions:
+        query += " WHERE " + " AND ".join(conditions)
+    
+    query += " ORDER BY r.timestamp DESC"
+    
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(query, params)
+            responses = [dict(row) for row in cursor.fetchall()]
+            return responses
+    except sqlite3.Error as e:
+        logger.error(f"Failed to get LLM responses: {e}")
+        raise
+
+def get_token_usage_statistics(filters: Optional[Dict] = None) -> Dict[str, Any]:
+    """
+    Retrieve statistics about token usage across different LLM models and prompt templates.
+    
+    Args:
+        filters (Optional[Dict]): Dictionary of filter conditions.
+            Supported filters: Same as get_llm_responses().
+            
+    Returns:
+        Dict[str, Any]: Dictionary with token usage statistics.
+        
+    Raises:
+        sqlite3.Error: If a database error occurs.
+    """
+    try:
+        # Get all responses based on filters
+        responses = get_llm_responses(filters)
+        
+        if not responses:
+            return {
+                'total_interactions': 0,
+                'total_tokens': 0,
+                'avg_tokens_per_request': 0,
+                'avg_response_time_ms': 0
+            }
+        
+        # Calculate overall statistics
+        valid_token_responses = [r for r in responses if r.get('total_tokens') is not None]
+        valid_time_responses = [r for r in responses if r.get('response_time_ms') is not None]
+        
+        total_tokens = sum(r.get('total_tokens', 0) for r in valid_token_responses)
+        avg_tokens = total_tokens / len(valid_token_responses) if valid_token_responses else 0
+        
+        avg_response_time = (
+            sum(r.get('response_time_ms', 0) for r in valid_time_responses) / len(valid_time_responses)
+            if valid_time_responses else 0
+        )
+        
+        # Organize token usage by model
+        model_usage = {}
+        for r in responses:
+            model = r.get('llm_model_name', 'Unknown')
+            if model not in model_usage:
+                model_usage[model] = {
+                    'model': model,
+                    'count': 0,
+                    'total_tokens': 0,
+                    'avg_tokens': 0
+                }
+            
+            model_usage[model]['count'] += 1
+            if r.get('total_tokens') is not None:
+                model_usage[model]['total_tokens'] += r.get('total_tokens', 0)
+        
+        # Calculate averages for each model
+        for model in model_usage:
+            if model_usage[model]['count'] > 0:
+                model_usage[model]['avg_tokens'] = (
+                    model_usage[model]['total_tokens'] / model_usage[model]['count']
+                )
+        
+        # Get prompt template usage data
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            
+            # Construct a query to get token usage by prompt template
+            query = """
+                SELECT 
+                    c.prompt_template,
+                    COUNT(r.id) as count,
+                    AVG(r.total_tokens) as avg_tokens,
+                    SUM(r.total_tokens) as total_tokens
+                FROM 
+                    llm_responses r
+                JOIN 
+                    llm_classifications c ON r.classification_id = c.id
+                WHERE 
+                    r.total_tokens IS NOT NULL
+            """
+            
+            conditions = []
+            params = []
+            
+            if filters:
+                if 'llm_model_name' in filters:
+                    conditions.append("c.llm_model_name = ?")
+                    params.append(filters['llm_model_name'])
+                
+                if 'date_from' in filters:
+                    if isinstance(filters['date_from'], datetime):
+                        date_from = filters['date_from']
+                    else:
+                        date_from = datetime.combine(filters['date_from'], datetime.min.time())
+                    conditions.append("r.timestamp >= ?")
+                    params.append(date_from)
+                
+                if 'date_to' in filters:
+                    if isinstance(filters['date_to'], datetime):
+                        date_to = filters['date_to']
+                    else:
+                        date_to = datetime.combine(filters['date_to'], datetime.max.time())
+                    conditions.append("r.timestamp <= ?")
+                    params.append(date_to)
+            
+            if conditions:
+                query += " AND " + " AND ".join(conditions)
+            
+            query += " GROUP BY c.prompt_template"
+            
+            cursor.execute(query, params)
+            prompt_template_usage = [dict(row) for row in cursor.fetchall()]
+        
+        return {
+            'total_interactions': len(responses),
+            'total_tokens': total_tokens,
+            'avg_tokens_per_request': avg_tokens,
+            'avg_response_time_ms': avg_response_time,
+            'model_token_usage': list(model_usage.values()),
+            'prompt_template_token_usage': prompt_template_usage
+        }
+    except sqlite3.Error as e:
+        logger.error(f"Failed to get token usage statistics: {e}")
         raise 
