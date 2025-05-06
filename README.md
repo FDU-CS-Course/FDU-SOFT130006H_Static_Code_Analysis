@@ -1,45 +1,112 @@
 # Review Helper
 
-## Background
+A tool for classifying and reviewing cppcheck issues using Large Language Models (LLMs).
 
-- We've scanned a cpp project with a tool called cppcheck.
-- Many issues were found, some were serious, some need fixing, some are false positives.
-- We want to test if we can use AI to help us fix these issues.
+## Overview
 
-## What we're going to do
+Review Helper is designed to assist developers in processing and classifying issues identified by the cppcheck static analysis tool for C++ projects. It leverages Large Language Models (LLMs) to automatically classify issues as:
 
-This tool will be a web app. It can:
+- **False positive**: The issue is not a real problem
+- **Need fixing**: The issue should be fixed but is not critical
+- **Very serious**: The issue is critical and must be fixed immediately
 
-1. Load in the cppcheck issues (csv format)
-2. Read the source code and build context for LLMs (with different strategies)
-3. Use LLMs to:
-   - Classify issues as `false positive`, `need fixing`, `very serious`
-4. Allow users to review the issues and tell whether the LLM's classification is correct
+The application provides a user interface for reviewing LLM classifications and providing feedback, which helps improve the accuracy of future classifications.
 
-It should support multiple LLMs and multiple context building strategies.
+## Features
 
-## Tech stack
+- Load cppcheck issues from a CSV file
+- Read source code and build context for LLM analysis
+- Utilize LLMs to classify issues
+- Review LLM classifications and provide feedback
+- View statistics about LLM performance and issue distribution
+- Support for multiple LLM providers and context-building strategies
 
-- Frontend&Backend: streamlit
-- LLM: openai SDK for Python
-- Database: sqlite
+## Installation
 
-## Input format
+1. Clone the repository:
+   ```
+   git clone https://github.com/yourusername/review-helper.git
+   cd review-helper
+   ```
 
-Cppcheck's output format:
+2. Install the required dependencies:
+   ```
+   pip install -r requirements.txt
+   ```
 
-`File, Line, Severity, Id, Summary`
+3. Create a `.env` file based on the `.env.example` template:
+   ```
+   cp .env.example .env
+   ```
 
-Notice that `Summary` may contain commas.
+4. Edit the `.env` file to set your OpenAI API key and project root directory:
+   ```
+   OPENAI_API_KEY=your_openai_api_key_here
+   REVIEW_HELPER_PROJECT_ROOT=/absolute/path/to/your/cpp/project
+   ```
 
-Code input:
+## Usage
 
-`File` would be the path to the related source code file.
+1. Start the application:
+   ```
+   streamlit run app.py
+   ```
 
-A server-side config will specify the project root directory, use it to check if the file is within the project (for security).
+2. Navigate to the application in your web browser (typically at http://localhost:8501)
 
-## Design doc
+3. Follow the workflow:
+   - **Load Issues**: Upload a cppcheck CSV file or specify its path
+   - **Run LLM**: Select an LLM and prompt template to classify issues
+   - **Review Issues**: Review LLM classifications and provide feedback
+   - **Statistics**: View statistics about LLM performance and issue distribution
 
-See [docs/TECHNICAL_DESIGN.md](docs/TECHNICAL_DESIGN.md)
+## Configuration
+
+### LLM Models
+
+LLM models are configured in the `models.yaml` file. Example configuration:
+
+```yaml
+gpt4:
+  provider: openai
+  model: gpt-4
+  api_key_env: OPENAI_API_KEY
+
+gpt35turbo:
+  provider: openai
+  model: gpt-3.5-turbo
+  api_key_env: OPENAI_API_KEY
+```
+
+### Prompt Templates
+
+Prompt templates are stored in the `prompts/` directory as `.txt` files. The default template is `classification_default.txt`.
+
+### Application Settings
+
+The main application settings are in `config.py`:
+
+- `PROJECT_ROOT_DIR`: Absolute path to the C++ project being analyzed
+- `DEFAULT_LLM_UNIQUE_NAME`: Default LLM model to use
+- `DEFAULT_PROMPT_TEMPLATE_FILENAME`: Default prompt template
+- `DEFAULT_CONTEXT_STRATEGY`: Default strategy for context building
+- `CONTEXT_LINES_COUNT`: Number of lines to include before and after the issue line
+
+## CSV Format
+
+The cppcheck CSV file should have the following columns:
+- `File`: The path to the file with the issue
+- `Line`: The line number where the issue was found
+- `Severity`: The severity level (e.g., error, warning, style)
+- `Id`: The cppcheck issue ID (e.g., nullPointer, divByZero)
+- `Summary`: Description of the issue
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
 
 

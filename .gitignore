@@ -2,8 +2,39 @@ data/
 
 # Python
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
 
-db/
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# Environment variables
+.env
+
+# Database
+db/*.db
+
+# IDE/Editor specific files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Streamlit cache
+.streamlit/
+
+# Logs
+*.log
+
+# OS-specific files
+.DS_Store
+Thumbs.db
 
 models.yaml
