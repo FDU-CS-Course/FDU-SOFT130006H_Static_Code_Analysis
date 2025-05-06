@@ -338,6 +338,16 @@ try:
             index=0
         )
         
+        # Add option to limit to first N issues regardless of selection method
+        limit_issues = st.checkbox("Limit to first N issues", value=False)
+        if limit_issues:
+            num_issues = st.number_input(
+                "Number of issues to process (0 for all)",
+                min_value=0,
+                max_value=len(filtered_issues),
+                value=10
+            )
+        
         selected_issues = []
         
         if selection_type == "All Issues":
@@ -367,6 +377,15 @@ try:
             selected_issue_ids = [int(id_str.split(':')[0].replace('ID ', '')) for id_str in issue_ids]
             selected_issues = [issue for issue in filtered_issues if issue['id'] in selected_issue_ids]
             st.info(f"Selected {len(selected_issues)} specific issues.")
+        
+        # Apply the first N limit if enabled
+        if limit_issues and num_issues > 0:
+            original_count = len(selected_issues)
+            # Randomize the selection
+            import random
+            random.seed(42)
+            selected_issues = random.sample(selected_issues, num_issues)
+            st.info(f"Limited selection to first {len(selected_issues)} issues out of {original_count}.")
         
         # Process button
         if st.session_state.processing_issues:
