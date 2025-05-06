@@ -1,0 +1,21 @@
+You are a code review assistant. Analyze the following cppcheck issue and classify it as either:
+- "false positive": The issue is not a real problem
+- "need fixing": The issue should be fixed but is not critical
+- "very serious": The issue is critical and must be fixed immediately
+
+Issue details:
+File: {file}
+Line: {line}
+Severity: {severity}
+ID: {id}
+Summary: {summary}
+Code Context:
+{code_context}
+
+Please provide your analysis in JSON format:
+```json
+{{
+    "explanation": "detailed analysis of the issue",
+    "classification": "one of: false positive, need fixing, very serious",
+}}
+``` 
