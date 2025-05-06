@@ -11,6 +11,8 @@ The module uses SQLite for data persistence, storing cppcheck issues,
 LLM classifications, and user reviews.
 """
 
+DB_INITIALIZED:bool = False
+
 import os
 import sqlite3
 from typing import List, Dict, Any, Optional, Tuple
@@ -105,6 +107,9 @@ def init_db() -> None:
     Raises:
         sqlite3.Error: If a database error occurs.
     """
+    global DB_INITIALIZED
+    if DB_INITIALIZED:
+        return
     try:
         with get_db_connection() as conn:
             cursor = conn.cursor()
@@ -113,6 +118,7 @@ def init_db() -> None:
             cursor.execute(CREATE_UPDATE_TRIGGER)
             conn.commit()
             logger.info("Database initialized successfully.")
+            DB_INITIALIZED = True
     except sqlite3.Error as e:
         logger.error(f"Failed to initialize database: {e}")
         raise
@@ -133,7 +139,7 @@ def add_issues(issues: List[Dict[str, Any]]) -> List[int]:
         ValueError: If any issue is missing required fields.
     """
     issue_ids = []
-    required_fields = ['file', 'line', 'severity', 'id', 'summary']
+    required_fields = ['cppcheck_file', 'cppcheck_line', 'cppcheck_severity', 'cppcheck_id', 'cppcheck_summary']
     
     try:
         with get_db_connection() as conn:
@@ -150,11 +156,11 @@ def add_issues(issues: List[Dict[str, Any]]) -> List[int]:
                         cppcheck_id, cppcheck_summary, status
                     ) VALUES (?, ?, ?, ?, ?, ?)
                 """, (
-                    issue['file'], 
-                    issue['line'], 
-                    issue['severity'], 
-                    issue['id'], 
-                    issue['summary'],
+                    issue['cppcheck_file'], 
+                    issue['cppcheck_line'], 
+                    issue['cppcheck_severity'], 
+                    issue['cppcheck_id'], 
+                    issue['cppcheck_summary'],
                     'pending_llm'
                 ))
                 issue_ids.append(cursor.lastrowid)
