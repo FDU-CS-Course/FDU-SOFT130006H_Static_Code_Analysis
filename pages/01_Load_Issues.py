@@ -80,6 +80,8 @@ with tab1:
             
             except Exception as e:
                 st.error(f"Error parsing CSV: {str(e)}")
+                import traceback
+                traceback.print_exc()
 
 with tab2:
     # Text input for file path
@@ -99,8 +101,7 @@ with tab2:
                 try:
                     # Parse CSV file
                     with st.spinner("Parsing issues..."):
-                        with open(csv_path, 'r') as f:
-                            issues = parse_cppcheck_csv(f)
+                        issues = parse_cppcheck_csv(csv_path)
                     
                     # Show preview of parsed issues
                     if issues:

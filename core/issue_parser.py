@@ -37,15 +37,21 @@ def parse_cppcheck_csv(file_path_or_buffer: Union[str, io.BytesIO]) -> List[Dict
         # Handle both file paths and file-like objects
         if isinstance(file_path_or_buffer, str):
             with open(file_path_or_buffer, 'r', encoding='utf-8') as f:
-                reader = csv.DictReader(f)
-                _validate_columns(reader.fieldnames, required_columns)
-                issues = _process_rows(reader)
+                fields = f.readline().split(',')
+                fields = [field.strip() for field in fields]
+                rows = [line.strip().split(',', maxsplit=len(fields) - 1) for line in f if line.strip()]
         else:
             # Handle file-like objects (e.g., BytesIO)
             content = file_path_or_buffer.getvalue().decode('utf-8')
-            reader = csv.DictReader(io.StringIO(content))
-            _validate_columns(reader.fieldnames, required_columns)
-            issues = _process_rows(reader)
+            fields = content.split(',')
+            fields = [field.strip() for field in fields]
+            rows = [line.strip().split(',', maxsplit=len(fields) - 1) for line in content.splitlines() if line.strip()]
+        
+        # Convert rows to list[dict[str, str]]
+        rows = [{fields[i]: row[i] for i in range(len(fields))} for row in rows]
+
+        _validate_columns(fields, required_columns)
+        issues = _process_rows(rows)
             
         return issues
         
@@ -70,7 +76,7 @@ def _validate_columns(fieldnames: List[str], required_columns: set) -> None:
     if missing_columns:
         raise ValueError(f"Missing required columns: {', '.join(missing_columns)}")
 
-def _process_rows(reader: csv.DictReader) -> List[Dict[str, Any]]:
+def _process_rows(rows: List[Dict[str, str]]) -> List[Dict[str, Any]]:
     """Process CSV rows into issue dictionaries.
     
     Args:
@@ -80,7 +86,7 @@ def _process_rows(reader: csv.DictReader) -> List[Dict[str, Any]]:
         List of issue dictionaries
     """
     issues = []
-    for row_num, row in enumerate(reader, start=2):  # Start from 2 to account for header row
+    for row_num, row in enumerate(rows, start=2):  # Start from 2 to account for header row
         try:
             # Convert Line to integer
             row['Line'] = int(row['Line'])
