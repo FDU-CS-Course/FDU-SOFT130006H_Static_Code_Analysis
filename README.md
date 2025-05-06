@@ -76,7 +76,24 @@ gpt35turbo:
   provider: openai
   model: gpt-3.5-turbo
   api_key_env: OPENAI_API_KEY
+  
+deepseek-v3:
+  provider: openai
+  model: deepseek-chat
+  api_key_env: DEEPSEEK_API_KEY
+  base_url: https://api.deepseek.com
 ```
+
+The `api_key_env` field specifies the environment variable that contains the API key for the corresponding LLM provider. Make sure to set these environment variables in your `.env` file or system environment.
+
+### Context Building Strategies
+
+The application supports different strategies for extracting code context around issues:
+
+- **Fixed Lines**: Extracts a fixed number of lines before and after the issue line.
+- **Function Scope**: Intelligently extracts the entire function containing the issue by analyzing code structure.
+
+These strategies can be selected in the "Run LLM" page when processing issues.
 
 ### Prompt Templates
 

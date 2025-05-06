@@ -98,6 +98,11 @@ def process_issues(issues: List[Dict[str, Any]],
         context_strategy: Strategy for building code context
         stop_event: Flag to stop processing
     """
+    print(f"Processing {len(issues)} issues with {llm_config_name} and {prompt_template}")
+    
+    # Initialize context builder once
+    context_builder = ContextBuilder(config.PROJECT_ROOT_DIR)
+    
     st.session_state.total_issues = len(issues)
     st.session_state.current_issue_index = 0
     st.session_state.processed_issues = []
@@ -111,34 +116,37 @@ def process_issues(issues: List[Dict[str, Any]],
         st.session_state.current_issue_index = i + 1
         
         try:
-            # Get file path
-            file_path = issue['cppcheck_file']
-            line_number = issue['cppcheck_line']
-            
             # Check if PROJECT_ROOT_DIR is set
             if not config.PROJECT_ROOT_DIR:
                 raise ValueError("Project root directory not set. Please set the REVIEW_HELPER_PROJECT_ROOT environment variable.")
             
+            # Get file path and line number
+            file_path = issue['cppcheck_file']
+            line_number = int(issue['cppcheck_line'])  # Ensure line_number is an integer
+            
             # Build absolute path to source file
             abs_file_path = os.path.join(config.PROJECT_ROOT_DIR, file_path)
             
-            # Validate path is safe
+            # Validate path is safe (will be checked again in context_builder)
             if not is_path_safe(abs_file_path, config.PROJECT_ROOT_DIR):
                 raise ValueError(f"File path is outside the project root: {file_path}")
             
-            # Build code context
-            code_context = ContextBuilder(config.PROJECT_ROOT_DIR).build_context(
+            # Build code context using the selected strategy
+            code_context = context_builder.build_context(
                 abs_file_path, 
                 line_number, 
                 strategy=context_strategy,
-                project_root=config.PROJECT_ROOT_DIR,
-                context_lines=config.CONTEXT_LINES_COUNT
+                lines_before=config.CONTEXT_LINES_COUNT,
+                lines_after=config.CONTEXT_LINES_COUNT
             )
+            
+            if code_context is None:
+                raise ValueError(f"Could not build code context for {file_path}:{line_number}. File may not exist or is not accessible.")
             
             # Prepare issue content for LLM
             issue_content = {
                 'file': file_path,
-                'line': line_number,
+                'line': str(line_number),  # Ensure line is a string for formatting
                 'severity': issue['cppcheck_severity'],
                 'id': issue['cppcheck_id'],
                 'summary': issue['cppcheck_summary'],
@@ -152,6 +160,13 @@ def process_issues(issues: List[Dict[str, Any]],
                 prompt_template=prompt_template
             )
             
+            # Validate classification before saving to database
+            valid_classifications = ["false positive", "need fixing", "very serious"]
+            classification = llm_result.get('classification', 'unknown')
+            if classification not in valid_classifications:
+                print(f"Warning: Invalid classification '{classification}' from LLM. Using 'unknown' instead.")
+                classification = "unknown"
+            
             # Save classification to database
             add_llm_classification(
                 issue_id=issue['id'],
@@ -159,7 +174,7 @@ def process_issues(issues: List[Dict[str, Any]],
                 context_strategy=context_strategy,
                 prompt_template=prompt_template,
                 source_code_context=code_context,
-                classification=llm_result.get('classification', 'unknown'),
+                classification=classification,
                 explanation=llm_result.get('explanation', '')
             )
             
@@ -168,7 +183,7 @@ def process_issues(issues: List[Dict[str, Any]],
                 'id': issue['id'],
                 'file': file_path,
                 'line': line_number,
-                'classification': llm_result.get('classification', 'unknown')
+                'classification': classification
             })
             
             # Small delay to prevent API rate limiting
@@ -177,13 +192,36 @@ def process_issues(issues: List[Dict[str, Any]],
         except Exception as e:
             # Add to failed issues
             st.session_state.failed_issues.append({
-                'id': issue['id'],
+                'id': issue.get('id', 'Unknown'),
                 'file': issue.get('cppcheck_file', 'Unknown'),
                 'line': issue.get('cppcheck_line', 'Unknown'),
                 'error': str(e)
             })
+            import traceback
+            traceback.print_exc()
+            print(f"Failed to process issue {issue.get('id', 'Unknown')}: {str(e)}")
+    
+    print(f"Processed {len(st.session_state.processed_issues)} issues")
+    print(f"Failed {len(st.session_state.failed_issues)} issues")
             
     st.session_state.processing_issues = False
+
+def on_start_processing_click():
+    """Callback for starting processing"""
+    st.session_state.processing_issues = True
+    # Create stop event flag
+    stop_requested = lambda: not st.session_state.processing_issues
+    
+    # Start processing in a separate thread
+    st.session_state.total_issues = len(selected_issues)
+    process_issues(
+        selected_issues,
+        selected_llm,
+        selected_prompt,
+        selected_strategy,
+        stop_requested
+    )
+
 
 # Main UI layout
 if not config.PROJECT_ROOT_DIR:
@@ -356,21 +394,7 @@ try:
         elif selected_issues:
             col1, col2 = st.columns([1, 4])
             with col1:
-                if st.button("Start Processing"):
-                    st.session_state.processing_issues = True
-                    
-                    # Create stop event flag
-                    stop_requested = lambda: not st.session_state.processing_issues
-                    
-                    # Start processing in a separate thread
-                    st.session_state.total_issues = len(selected_issues)
-                    process_issues(
-                        selected_issues,
-                        selected_llm,
-                        selected_prompt,
-                        selected_strategy,
-                        stop_requested
-                    )
+                st.button("Start Processing", key="start_processing", on_click=on_start_processing_click)
             
             with col2:
                 st.info("Click 'Start Processing' to begin LLM analysis of the selected issues.")

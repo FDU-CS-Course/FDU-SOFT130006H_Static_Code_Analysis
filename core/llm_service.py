@@ -122,48 +122,52 @@ class LLMService:
         Args:
             issue_content: Dictionary containing issue details
             llm_name: Name of LLM configuration to use
-            prompt_template: Prompt template content
+            prompt_template: Filename of the prompt template
             
         Returns:
             Dictionary containing classification and explanation
             
         Raises:
             KeyError: If LLM configuration not found
-            ValueError: If required API key not set
+            ValueError: If required API key not set or prompt template not found
+            RuntimeError: If LLM processing fails
         """
         if llm_name not in self.llm_configs:
             raise KeyError(f"LLM configuration not found: {llm_name}")
             
         config = self.llm_configs[llm_name]
-        api_key = config.get('api_key')
         
-        if not api_key:
-            raise ValueError(f"API key not found in config for LLM: {llm_name}")
+        # Validate configuration
+        if 'provider' not in config or 'model' not in config:
+            raise ValueError(f"Invalid LLM configuration for {llm_name}. Missing provider or model.")
             
-        # Format prompt with issue content
-        formatted_prompt = prompt_template.format(**issue_content)
+        # Load the prompt template
+        try:
+            prompt_template_path = os.path.join("prompts", prompt_template)
+            prompt_content = self.load_prompt_template(prompt_template_path)
+        except FileNotFoundError:
+            raise ValueError(f"Prompt template not found: {prompt_template}")
         
-        # Currently only OpenAI implementation
-        # TODO: Add support for other LLM providers
+        # Format prompt with issue content
+        formatted_prompt = prompt_content.format(**issue_content)
+        
+        # Dispatch to appropriate provider
         if config['provider'] == 'openai':
             return self._classify_with_openai(
                 formatted_prompt,
-                config['model'],
-                api_key
+                config
             )
         else:
             raise ValueError(f"Unsupported LLM provider: {config['provider']}")
             
     def _classify_with_openai(self, 
                             prompt: str, 
-                            model: str, 
-                            api_key: str) -> Dict[str, str]:
+                            config: Dict[str, Any]) -> Dict[str, str]:
         """Classify using OpenAI API.
         
         Args:
             prompt: Formatted prompt
-            model: OpenAI model name
-            api_key: OpenAI API key
+            config: OpenAI configuration dictionary
             
         Returns:
             Dictionary with classification and explanation
@@ -172,16 +176,31 @@ class LLMService:
             RuntimeError: If API call fails or response is invalid
             json.JSONDecodeError: If response is not valid JSON
         """
+        # Get API key from config or environment variable
+        api_key = config.get('api_key')
+        api_key_env = config.get('api_key_env')
+        
+        if api_key_env:
+            api_key = os.environ.get(api_key_env)
+            
+        if not api_key:
+            raise ValueError(f"API key not found for LLM configuration. Please check your models.yaml file or environment variables.")
+        
         openai.api_key = api_key
+        openai.base_url = config.get('base_url', "https://api.openai.com/v1")
         
         try:
-            response = openai.ChatCompletion.create(
-                model=model,
+            print(f"Calling OpenAI with model: {config['model']}")
+            
+            response = openai.chat.completions.create(
+                model=config['model'],
                 messages=[
                     {"role": "system", "content": "You are a code review assistant."},
                     {"role": "user", "content": prompt}
                 ]
             )
+            
+            print(f"Response: {response}")
             
             # Extract JSON from response
             content = response.choices[0].message.content

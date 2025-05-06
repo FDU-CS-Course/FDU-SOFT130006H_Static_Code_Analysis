@@ -14,8 +14,8 @@ Code Context:
 
 Please provide your analysis in JSON format:
 ```json
-{
+{{
     "classification": "one of: false positive, need fixing, very serious",
     "explanation": "detailed explanation of your reasoning"
-}
+}}
 ``` 

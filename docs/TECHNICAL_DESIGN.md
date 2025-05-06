@@ -115,13 +115,16 @@ review_helper/
         -   Expected CSV columns: `File`, `Line`, `Severity`, `Id`, `Summary`.
         -   Returns a list of dictionaries, each representing an issue.
 -   **`context_builder.py`**:
-    -   **`build_context(file_path: str, line_number: int, strategy: str = "fixed_lines", project_root: str, **kwargs) -> str`**:
-        -   Reads the content of the specified `file_path` (validated to be within `project_root`).
-        -   Extracts a code snippet around the `line_number` based on the chosen `strategy`.
-        -   Possible strategies:
-            -   `fixed_lines`: N lines before and after the issue line.
-            -   `function_scope`: (Future enhancement) Tries to extract the entire function containing the issue.
-        -   Returns the extracted code context as a string. Requires `file_utils.is_path_safe` check.
+    -   **`ContextBuilder` class**:
+        -   Initialization with `project_root` for path validation.
+        -   **`build_context(file_path: str, line_number: int, strategy: str = "fixed_lines", **kwargs) -> Optional[str]`**:
+            -   Reads the content of the specified `file_path` (validated to be within `project_root`).
+            -   Extracts a code snippet around the `line_number` based on the chosen `strategy`.
+            -   Possible strategies:
+                -   `fixed_lines`: N lines before and after the issue line.
+                -   `function_scope`: Intelligently extracts the entire function containing the issue by analyzing code structure.
+            -   Returns the extracted code context as a string with line numbers, or None if extraction fails.
+            -   Includes comprehensive error handling with fallback to simpler strategies when needed.
 -   **`llm_service.py`**:
     -   **`LLMService` class**:
         -   Handles all LLM-related operations including configuration loading, prompt template management, and issue classification.
@@ -135,7 +138,13 @@ review_helper/
         gpt4:
           provider: openai
           model: gpt-4
-          api_key: your-api-key-here  # API key stored directly in config
+          api_key_env: OPENAI_API_KEY  # API key stored in environment variable
+          
+        deepseek-v3:
+          provider: openai
+          model: deepseek-chat
+          api_key_env: DEEPSEEK_API_KEY
+          base_url: https://api.deepseek.com
         ```
     -   **Prompt Template Format**:
         -   Stored as `.txt` files in `prompts/` directory
