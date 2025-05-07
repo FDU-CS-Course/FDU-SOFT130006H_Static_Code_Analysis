@@ -31,22 +31,25 @@ if 'filter_settings' not in st.session_state:
     st.session_state.filter_settings = {
         'status': ['pending_review'],
         'severity': [],
-        'id': None
+        'id': None,
+        'show_contradictory': False
     }
 
 # Function to filter issues
 def filter_issues(issues: List[Dict[str, Any]], 
                  status_filter: List[str] = None, 
                  severity_filter: List[str] = None,
-                 issue_id: Optional[int] = None) -> List[Dict[str, Any]]:
+                 issue_id: Optional[int] = None,
+                 show_contradictory: bool = False) -> List[Dict[str, Any]]:
     """
-    Filter issues based on status, severity, and issue ID.
+    Filter issues based on status, severity, issue ID, and contradictory LLM classifications.
     
     Args:
         issues: List of issues to filter
         status_filter: List of status values to include
         severity_filter: List of severity values to include
         issue_id: Specific issue ID to filter for
+        show_contradictory: If True, show only issues with contradictory LLM classifications
         
     Returns:
         List[Dict[str, Any]]: Filtered list of issues
@@ -62,6 +65,18 @@ def filter_issues(issues: List[Dict[str, Any]],
     
     if severity_filter:
         filtered = [issue for issue in filtered if issue['cppcheck_severity'] in severity_filter]
+    
+    if show_contradictory:
+        # Keep only issues with multiple classifications that have contradictory decisions
+        contradictory_issues = []
+        for issue in filtered:
+            if 'llm_classifications' in issue and len(issue['llm_classifications']) > 1:
+                # Get unique classifications
+                classifications = set(cls['classification'] for cls in issue['llm_classifications'])
+                # If there are multiple different classifications, it's contradictory
+                if len(classifications) > 1:
+                    contradictory_issues.append(issue)
+        filtered = contradictory_issues
     
     return filtered
 
@@ -100,11 +115,19 @@ with st.sidebar:
         
         specific_issue_id = int(specific_issue) if specific_issue and specific_issue.isdigit() else None
         
+        # Contradictory classifications filter
+        show_contradictory = st.checkbox(
+            "Show Issues with Contradictory Classifications",
+            value=st.session_state.filter_settings.get('show_contradictory', False),
+            help="Show only issues that have contradicting LLM classifications"
+        )
+        
         # Update filter settings
         st.session_state.filter_settings = {
             'status': selected_status,
             'severity': selected_severity,
-            'id': specific_issue_id
+            'id': specific_issue_id,
+            'show_contradictory': show_contradictory
         }
         
         # Filter issues
@@ -112,7 +135,8 @@ with st.sidebar:
             all_issues,
             status_filter=selected_status,
             severity_filter=selected_severity,
-            issue_id=specific_issue_id
+            issue_id=specific_issue_id,
+            show_contradictory=show_contradictory
         )
         
         # Display filtered count
@@ -199,6 +223,24 @@ if filtered_issues:
             
             st.subheader("Code Context")
             st.code(latest_classification['source_code_context'], language="cpp")
+            
+            # If there are contradictory classifications, highlight this
+            if st.session_state.filter_settings.get('show_contradictory', False):
+                classifications = [cls['classification'] for cls in detailed_issue['llm_classifications']]
+                if len(set(classifications)) > 1:
+                    st.warning("⚠️ This issue has contradictory classifications from different LLM models")
+                    
+                    # Show a summary of the contradictions
+                    classification_counts = {}
+                    for cls in classifications:
+                        if cls in classification_counts:
+                            classification_counts[cls] += 1
+                        else:
+                            classification_counts[cls] = 1
+                    
+                    st.markdown("**Classification Distribution:**")
+                    for cls, count in classification_counts.items():
+                        st.markdown(f"- {cls}: {count} model(s)")
         
         # Display LLM classifications
         st.subheader("LLM Classifications")
