@@ -304,6 +304,99 @@ recent_stats = get_llm_statistics({'date_from': one_week_ago})
 print(f"Recent accuracy: {recent_stats['overall_accuracy']['accuracy'] * 100:.2f}%")
 ```
 
+### Advanced Issue Filtering
+
+#### `get_all_issue_statuses() -> set`
+
+Retrieves all unique issue statuses from the database.
+
+**Returns:**
+- A set of unique status values (e.g., 'pending_llm', 'pending_review', 'reviewed').
+
+**Raises:**
+- `sqlite3.Error`: If a database error occurs.
+
+```python
+from core.data_manager import get_all_issue_statuses
+
+# Get all possible issue statuses
+statuses = get_all_issue_statuses()
+print(f"Available statuses: {statuses}")
+```
+
+#### `get_all_issue_severities() -> set`
+
+Retrieves all unique issue severities from the database.
+
+**Returns:**
+- A set of unique severity values (e.g., 'error', 'warning', 'style').
+
+**Raises:**
+- `sqlite3.Error`: If a database error occurs.
+
+```python
+from core.data_manager import get_all_issue_severities
+
+# Get all possible issue severities
+severities = get_all_issue_severities()
+print(f"Available severities: {severities}")
+```
+
+#### `get_all_issue_cppcheck_ids() -> set`
+
+Retrieves all unique cppcheck issue IDs from the database.
+
+**Returns:**
+- A set of unique cppcheck_id values (e.g., 'nullPointer', 'arrayIndexOutOfBounds').
+
+**Raises:**
+- `sqlite3.Error`: If a database error occurs.
+
+```python
+from core.data_manager import get_all_issue_cppcheck_ids
+
+# Get all possible cppcheck IDs
+cppcheck_ids = get_all_issue_cppcheck_ids()
+print(f"Available cppcheck IDs: {cppcheck_ids}")
+```
+
+#### `get_issues_by_filters(statuses: Optional[set] = None, severities: Optional[set] = None, cppcheck_ids: Optional[set] = None, contradictory_only: bool = False) -> List[Dict[str, Any]]`
+
+Retrieves issues based on multiple filter criteria.
+
+**Parameters:**
+- `statuses`: Optional set of status values to filter by.
+- `severities`: Optional set of severity values to filter by.
+- `cppcheck_ids`: Optional set of cppcheck_id values to filter by.
+- `contradictory_only`: If True, only return issues with contradictory LLM classifications.
+
+**Returns:**
+- A list of issue dictionaries matching the criteria.
+
+**Raises:**
+- `sqlite3.Error`: If a database error occurs.
+
+```python
+from core.data_manager import get_issues_by_filters
+
+# Get all error-level issues that are pending review
+issues = get_issues_by_filters(
+    statuses={'pending_review'},
+    severities={'error'}
+)
+print(f"Found {len(issues)} error-level issues pending review")
+
+# Get issues with contradictory LLM classifications
+contradictory_issues = get_issues_by_filters(contradictory_only=True)
+print(f"Found {len(contradictory_issues)} issues with contradictory classifications")
+
+# Get issues with specific cppcheck IDs
+specific_issues = get_issues_by_filters(
+    cppcheck_ids={'nullPointer', 'uninitvar'}
+)
+print(f"Found {len(specific_issues)} null pointer or uninitialized variable issues")
+```
+
 ## Security Considerations
 
 The `data_manager.py` module implements several security best practices:

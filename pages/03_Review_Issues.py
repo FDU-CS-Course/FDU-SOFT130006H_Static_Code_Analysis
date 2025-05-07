@@ -7,10 +7,13 @@ import pandas as pd
 from typing import List, Dict, Any, Optional
 
 from core.data_manager import (
-    get_all_issues,
     get_issue_by_id,
     update_llm_classification_review,
-    set_issue_true_classification
+    set_issue_true_classification,
+    get_all_issue_statuses,
+    get_all_issue_severities,
+    get_all_issue_cppcheck_ids,
+    get_issues_by_filters
 )
 
 # Page configuration
@@ -32,72 +35,27 @@ if 'filter_settings' not in st.session_state:
         'status': ['pending_review'],
         'severity': [],
         'id': None,
+        'cppcheck_id': [],
         'show_contradictory': False
     }
-
-# Function to filter issues
-def filter_issues(issues: List[Dict[str, Any]], 
-                 status_filter: List[str] = None, 
-                 severity_filter: List[str] = None,
-                 issue_id: Optional[int] = None,
-                 show_contradictory: bool = False) -> List[Dict[str, Any]]:
-    """
-    Filter issues based on status, severity, issue ID, and contradictory LLM classifications.
-    
-    Args:
-        issues: List of issues to filter
-        status_filter: List of status values to include
-        severity_filter: List of severity values to include
-        issue_id: Specific issue ID to filter for
-        show_contradictory: If True, show only issues with contradictory LLM classifications
-        
-    Returns:
-        List[Dict[str, Any]]: Filtered list of issues
-    """
-    filtered = issues
-    
-    if issue_id is not None:
-        filtered = [issue for issue in filtered if issue['id'] == issue_id]
-        return filtered
-    
-    if status_filter:
-        filtered = [issue for issue in filtered if issue['status'] in status_filter]
-    
-    if severity_filter:
-        filtered = [issue for issue in filtered if issue['cppcheck_severity'] in severity_filter]
-    
-    if show_contradictory:
-        # Keep only issues with multiple classifications that have contradictory decisions
-        contradictory_issues = []
-        for issue in filtered:
-            if 'llm_classifications' in issue and len(issue['llm_classifications']) > 1:
-                # Get unique classifications
-                classifications = set(cls['classification'] for cls in issue['llm_classifications'])
-                # If there are multiple different classifications, it's contradictory
-                if len(classifications) > 1:
-                    contradictory_issues.append(issue)
-        filtered = contradictory_issues
-    
-    return filtered
 
 # Filter sidebar
 with st.sidebar:
     st.subheader("Filter Issues")
     
-    # Status filter
-    status_options = ["pending_review", "reviewed", "pending_llm"]
-    selected_status = st.multiselect(
-        "Issue Status",
-        options=status_options,
-        default=st.session_state.filter_settings['status']
-    )
-    
-    # Get all issues for the severity list and navigation
     try:
-        all_issues = get_all_issues()
+        # Get all the unique values for filter dropdowns from the database
+        status_options = list(get_all_issue_statuses())
         
-        # Get unique severity values
-        severity_options = sorted(list(set(issue['cppcheck_severity'] for issue in all_issues)))
+        # Status filter
+        selected_status = st.multiselect(
+            "Issue Status",
+            options=status_options,
+            default=st.session_state.filter_settings['status']
+        )
+        
+        # Get all severity values directly from the database
+        severity_options = list(get_all_issue_severities())
         
         # Severity filter
         selected_severity = st.multiselect(
@@ -115,6 +73,19 @@ with st.sidebar:
         
         specific_issue_id = int(specific_issue) if specific_issue and specific_issue.isdigit() else None
         
+        # Get all cppcheck IDs directly from the database
+        cppcheck_ids = list(get_all_issue_cppcheck_ids())
+        
+        # Select cppcheck IDs filter
+        selected_cppcheck_ids = st.multiselect(
+            "Select cppcheck IDs",
+            options=cppcheck_ids,
+            default=st.session_state.filter_settings['cppcheck_id'] if isinstance(st.session_state.filter_settings['cppcheck_id'], list) else [],
+            help="Select one or more cppcheck IDs (e.g., 'zerodiv', 'nullPointer') to filter issues"
+        )
+        
+        specific_cppcheck_id_value = selected_cppcheck_ids if selected_cppcheck_ids else None
+        
         # Contradictory classifications filter
         show_contradictory = st.checkbox(
             "Show Issues with Contradictory Classifications",
@@ -127,17 +98,23 @@ with st.sidebar:
             'status': selected_status,
             'severity': selected_severity,
             'id': specific_issue_id,
+            'cppcheck_id': specific_cppcheck_id_value,
             'show_contradictory': show_contradictory
         }
         
-        # Filter issues
-        filtered_issues = filter_issues(
-            all_issues,
-            status_filter=selected_status,
-            severity_filter=selected_severity,
-            issue_id=specific_issue_id,
-            show_contradictory=show_contradictory
-        )
+        # Filter issues using the database-level filtering API
+        if specific_issue_id is not None:
+            # If specific issue ID is provided, get that issue directly
+            specific_issue_data = get_issue_by_id(specific_issue_id)
+            filtered_issues = [specific_issue_data] if specific_issue_data else []
+        else:
+            # Otherwise, use the filtering API
+            filtered_issues = get_issues_by_filters(
+                statuses=set(selected_status) if selected_status else None,
+                severities=set(selected_severity) if selected_severity else None,
+                cppcheck_ids={specific_cppcheck_id_value} if specific_cppcheck_id_value else None,
+                contradictory_only=show_contradictory
+            )
         
         # Display filtered count
         st.info(f"Found {len(filtered_issues)} issues matching filters")
@@ -186,8 +163,12 @@ if filtered_issues:
     # Get current issue
     current_issue = filtered_issues[st.session_state.current_issue_index]
     
-    # Get complete issue details with classifications
-    detailed_issue = get_issue_by_id(current_issue['id'])
+    # Get complete issue details with classifications if not already loaded
+    # (This ensures we have full details when using filtered_issues from get_issues_by_filters)
+    if 'llm_classifications' not in current_issue:
+        detailed_issue = get_issue_by_id(current_issue['id'])
+    else:
+        detailed_issue = current_issue
     
     if not detailed_issue:
         st.error(f"Error retrieving detailed information for issue {current_issue['id']}")
@@ -388,15 +369,3 @@ if filtered_issues:
 else:
     st.warning("No issues found matching the selected filters.")
     
-    # Help message if no issues
-    if not all_issues:
-        st.info("No issues found in the database. Please load issues and run LLM analysis first.")
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            if st.button("Go to Load Issues"):
-                st.switch_page("pages/01_Load_Issues.py")
-        
-        with col2:
-            if st.button("Go to Run LLM"):
-                st.switch_page("pages/02_Run_LLM.py") 

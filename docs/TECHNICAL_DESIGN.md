@@ -216,6 +216,10 @@ review_helper/
        -   **`add_llm_response(classification_id: int, full_prompt: str, full_response: str, prompt_tokens: Optional[int] = None, completion_tokens: Optional[int] = None, total_tokens: Optional[int] = None, response_time_ms: Optional[int] = None, model_parameters: Optional[Dict] = None) -> int`**: Adds a record of an LLM interaction to the database, including the full prompt, response, token counts, and performance metrics. Returns the ID of the new record.
        -   **`get_llm_responses(filters: Optional[Dict] = None) -> List[Dict[str, Any]]`**: Retrieves detailed records of LLM interactions. Supports filtering by 'classification_id', 'issue_id', 'llm_model_name', 'date_from', 'date_to', and token usage thresholds. Returns a list of dictionaries, each representing an LLM response record.
        -   **`get_token_usage_statistics(filters: Optional[Dict] = None) -> Dict[str, Any]`**: Retrieves statistics about token usage across different LLM models, prompt templates, and context strategies. Returns a dictionary with metrics such as average tokens per request, total token usage, and token usage distribution.
+       -   **`get_all_issue_statuses() -> set`**: Retrieves all unique issue statuses from the database. Returns a set of status values.
+       -   **`get_all_issue_severities() -> set`**: Retrieves all unique issue severities from the database. Returns a set of severity values.
+       -   **`get_all_issue_cppcheck_ids() -> set`**: Retrieves all unique cppcheck issue IDs from the database. Returns a set of cppcheck_id values.
+       -   **`get_issues_by_filters(statuses: Optional[set] = None, severities: Optional[set] = None, cppcheck_ids: Optional[set] = None, contradictory_only: bool = False) -> List[Dict[str, Any]]`**: Retrieves issues based on multiple filter criteria. Supports filtering by sets of statuses, severities, and cppcheck_ids. When contradictory_only is True, only returns issues with multiple contradictory LLM classifications. Returns a list of issue dictionaries matching the criteria.
 
 ### 4.3. Configuration (`config.py`)
 
@@ -326,7 +330,17 @@ The primary database will be `db/issues.db`.
 
 4.  **Review Issues (`pages/03_Review_Issues.py`)**:
     *   The user navigates to the review page.
-    *   `data_manager.py` fetches issues, typically those with `status = 'pending_review'` or all issues with filters.
+    *   `data_manager.py` provides specialized filter APIs for efficient database-level filtering:
+        *   `get_all_issue_statuses()` to populate status filter options
+        *   `get_all_issue_severities()` to populate severity filter options
+        *   `get_all_issue_cppcheck_ids()` to populate cppcheck ID filter options
+        *   `get_issues_by_filters()` to retrieve filtered issues based on user selections
+    *   The user can filter issues by:
+        *   Issue status (`pending_review`, `reviewed`, `pending_llm`)
+        *   Issue severity
+        *   Specific issue ID (internal database ID)
+        *   Specific cppcheck issue ID (e.g., `zerodiv`, `nullPointer`)
+        *   Contradictory classifications (issues where different LLMs provide conflicting assessments)
     *   For each issue, the UI displays:
         *   Issue details from cppcheck
         *   All LLM classification attempts from the `llm_classifications` table

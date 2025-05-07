@@ -929,4 +929,145 @@ def get_token_usage_statistics(filters: Optional[Dict] = None) -> Dict[str, Any]
         }
     except sqlite3.Error as e:
         logger.error(f"Failed to get token usage statistics: {e}")
+        raise
+
+def get_all_issue_statuses() -> set:
+    """
+    Retrieve all unique issue statuses from the database.
+    
+    Returns:
+        set: A set of unique status values.
+        
+    Raises:
+        sqlite3.Error: If a database error occurs.
+    """
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT DISTINCT status FROM issues")
+            statuses = {row['status'] for row in cursor.fetchall()}
+            return statuses
+    except sqlite3.Error as e:
+        logger.error(f"Failed to get issue statuses: {e}")
+        raise
+
+def get_all_issue_severities() -> set:
+    """
+    Retrieve all unique issue severities from the database.
+    
+    Returns:
+        set: A set of unique severity values.
+        
+    Raises:
+        sqlite3.Error: If a database error occurs.
+    """
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT DISTINCT cppcheck_severity FROM issues")
+            severities = {row['cppcheck_severity'] for row in cursor.fetchall()}
+            return severities
+    except sqlite3.Error as e:
+        logger.error(f"Failed to get issue severities: {e}")
+        raise
+
+def get_all_issue_cppcheck_ids() -> set:
+    """
+    Retrieve all unique cppcheck issue IDs from the database.
+    
+    Returns:
+        set: A set of unique cppcheck_id values.
+        
+    Raises:
+        sqlite3.Error: If a database error occurs.
+    """
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT DISTINCT cppcheck_id FROM issues")
+            cppcheck_ids = {row['cppcheck_id'] for row in cursor.fetchall()}
+            return cppcheck_ids
+    except sqlite3.Error as e:
+        logger.error(f"Failed to get cppcheck IDs: {e}")
+        raise
+
+def get_issues_by_filters(
+    statuses: Optional[set] = None, 
+    severities: Optional[set] = None, 
+    cppcheck_ids: Optional[set] = None,
+    contradictory_only: bool = False
+) -> List[Dict[str, Any]]:
+    """
+    Retrieve issues based on multiple filter criteria.
+    
+    Args:
+        statuses (Optional[set]): Set of status values to filter by.
+        severities (Optional[set]): Set of severity values to filter by.
+        cppcheck_ids (Optional[set]): Set of cppcheck_id values to filter by.
+        contradictory_only (bool): If True, only return issues with contradictory LLM classifications.
+            Contradictory means there are multiple classifications with different results.
+            
+    Returns:
+        List[Dict[str, Any]]: List of issue dictionaries matching the criteria.
+        
+    Raises:
+        sqlite3.Error: If a database error occurs.
+    """
+    query = "SELECT * FROM issues"
+    conditions = []
+    params = []
+    
+    # Add filter conditions
+    if statuses:
+        placeholders = ", ".join("?" for _ in statuses)
+        conditions.append(f"status IN ({placeholders})")
+        params.extend(statuses)
+        
+    if severities:
+        placeholders = ", ".join("?" for _ in severities)
+        conditions.append(f"cppcheck_severity IN ({placeholders})")
+        params.extend(severities)
+        
+    if cppcheck_ids:
+        placeholders = ", ".join("?" for _ in cppcheck_ids)
+        conditions.append(f"cppcheck_id IN ({placeholders})")
+        params.extend(cppcheck_ids)
+    
+    if conditions:
+        query += " WHERE " + " AND ".join(conditions)
+    
+    query += " ORDER BY id DESC"
+    
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(query, params)
+            issues = [dict(row) for row in cursor.fetchall()]
+            
+            # Get classifications for each issue
+            for issue in issues:
+                cursor.execute("""
+                    SELECT * FROM llm_classifications WHERE issue_id = ?
+                    ORDER BY processing_timestamp DESC
+                """, (issue['id'],))
+                issue['llm_classifications'] = [dict(row) for row in cursor.fetchall()]
+            
+            # Filter for contradictory classifications if requested
+            if contradictory_only:
+                filtered_issues = []
+                for issue in issues:
+                    classifications = issue.get('llm_classifications', [])
+                    
+                    # Only include issues with multiple classifications
+                    if len(classifications) > 1:
+                        # Check if classifications are contradictory
+                        unique_classifications = {c['classification'] for c in classifications}
+                        if len(unique_classifications) > 1:
+                            filtered_issues.append(issue)
+                
+                return filtered_issues
+            
+            return issues
+    except sqlite3.Error as e:
+        logger.error(f"Failed to get issues by filters: {e}")
         raise 
