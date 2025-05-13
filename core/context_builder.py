@@ -7,7 +7,7 @@ based on different strategies (e.g., fixed number of lines, function scope).
 
 import os
 import re
-from typing import Optional, Dict, Any, Tuple, List
+from typing import Optional, Dict, Any, Tuple, List, Set
 from utils.file_utils import is_path_safe, read_file_lines
 
 class ContextBuilder:
@@ -21,6 +21,18 @@ class ContextBuilder:
             project_root (str): Absolute path to the project root directory.
         """
         self.project_root = os.path.abspath(project_root)
+        self._file_cache: Dict[str, List[str]] = {}  # Cache for project files
+        self._std_headers: Set[str] = {
+            'iostream', 'vector', 'string', 'map', 'set', 'list', 'deque',
+            'queue', 'stack', 'algorithm', 'memory', 'utility', 'tuple',
+            'array', 'chrono', 'cmath', 'cstdlib', 'cstring', 'ctime',
+            'fstream', 'iomanip', 'ios', 'iosfwd', 'istream', 'ostream',
+            'sstream', 'streambuf', 'cassert', 'cctype', 'cerrno', 'cfloat',
+            'climits', 'clocale', 'cstdarg', 'cstddef', 'cstdio', 'cstdlib',
+            'cstring', 'ctime', 'cwchar', 'cwctype', 'exception', 'functional',
+            'limits', 'locale', 'new', 'numeric', 'random', 'ratio', 'stdexcept',
+            'typeinfo', 'type_traits', 'unordered_map', 'unordered_set'
+        }
     
     def build_context(
         self,
@@ -59,8 +71,8 @@ class ContextBuilder:
             return self._build_function_scope_context(file_path, line_number, **kwargs)
         elif strategy == "file_scope":
             return self._build_file_scope_context(file_path, line_number, **kwargs)
-        elif strategy == "project_scope":
-            return self._build_project_scope_context(file_path, line_number, **kwargs)
+        elif strategy == "file_with_includes":
+            return self._build_file_with_includes_context(file_path, line_number, **kwargs)
         elif strategy == "multiagent_scope":
             return self._build_multiagent_scope_context(file_path, line_number, **kwargs)
         else:
@@ -277,47 +289,75 @@ class ContextBuilder:
             # Fallback to fixed lines context on error
             return self._build_fixed_lines_context(file_path, line_number, **kwargs) 
         
-    def _build_project_scope_context(
+    def _build_file_with_includes_context(
         self,
         file_path: str,
         line_number: int,
         **kwargs
     ) -> Optional[str]:
         """
-        According to the designated file, find all the relevant files (the file it included) and append it to the context.
-        
+        Build context by analyzing the main file and its included files.
         
         Args:
-            file_path (str): The path of the file to be analyzed.
-            line_number (int): The line number of the issue.
+            file_path (str): Absolute path to the source file.
+            line_number (int): Line number where the issue was found.
+            **kwargs: Additional parameters (unused).
             
         Returns:
-            Optional[str]: The extracted relevant context(the file itself and the files it included)
+            Optional[str]: The extracted context including main file and included files, or None if:
+                         - The file cannot be read
+                         - The file path is unsafe
+                         - No relevant includes are found
         """
         try:
-            with open(file_path, 'r', encoding='utf-8') as f:
-                file_content = f.read()
-            # Find all the <#include> part
-            include_part = re.findall(r'<#include>(.*?)</#include>', file_content, re.DOTALL)
-            # exclude the standard library
-            include_part = [include_file for include_file in include_part if not include_file.startswith('<') and not include_file.endswith('>') and not include_file.startswith('"') and not include_file.endswith('"')]
-            designated_file_content = read_file_lines(file_path, 1, file_line_count)
-            relevant_content = []
+            # Validate file path
+            if not is_path_safe(file_path, self.project_root):
+                return None
+                
+            # Build file cache if not already done
+            if not self._file_cache:
+                self._build_file_cache()
             
-            for include_file in include_part:
-                include_file_path = os.path.abspath(os.path.join(os.path.dirname(file_path), include_file))
-                include_file_content = read_file_lines(include_file_path, 1, file_line_count)
-                if not include_file_content:
-                    continue
-                prompt_prefix = f"This is the content of the file {include_file}:\n"
-                relevant_content.append(prompt_prefix + include_file_content)
-            return {
-                "designated_file_content": designated_file_content,
-                "relevant_content": relevant_content
+            # Read the main file
+            main_file_content = read_file_lines(file_path, 1, float('inf'))
+            if not main_file_content:
+                return None
+                
+            # Find all includes in the main file
+            includes = self._find_includes(main_file_content)
+            
+            # Build context for included files
+            included_files_context = []
+            for include in includes:
+                include_path = self._find_include_file(include)
+                if include_path:
+                    include_content = read_file_lines(include_path, 1, float('inf'))
+                    if include_content:
+                        included_files_context.append(f"\nIncluded File: {include_path}\n{include_content}")
+            
+            # Format the context using the template
+            context = {
+                'main_file': file_path,
+                'line_number': line_number,
+                'issue_summary': kwargs.get('issue_summary', ''),
+                'source_code_context': main_file_content,
+                'included_files_context': '\n'.join(included_files_context)
             }
+            
+            # Read and format the template
+            template_path = os.path.join('prompts', 'file_with_includes_context.txt')
+            if os.path.exists(template_path):
+                with open(template_path, 'r', encoding='utf-8') as f:
+                    template = f.read()
+                return template.format(**context)
+            else:
+                # Fallback to simple formatting if template not found
+                return f"Main File: {file_path}\nLine: {line_number}\n\nSource Code:\n{main_file_content}\n\nIncluded Files:\n{''.join(included_files_context)}"
+                
         except Exception as e:
-            print(f"Error building project scope context: {str(e)}")
+            print(f"Error building file with includes context: {str(e)}")
             return None
+
     def _multiagent_context_builder(
         self,
         file_path: str,
@@ -373,4 +413,62 @@ class ContextBuilder:
             print(f"Error building multiagent scope context: {str(e)}")
             return None
         
+    
+    def _build_file_cache(self) -> None:
+        """
+        Build a cache of all files in the project directory.
+        This helps avoid repeated directory traversals.
+        """
+        for root, _, files in os.walk(self.project_root):
+            for file in files:
+                if file.endswith(('.h', '.hpp', '.cpp', '.cc', '.c')):
+                    full_path = os.path.join(root, file)
+                    rel_path = os.path.relpath(full_path, self.project_root)
+                    self._file_cache[rel_path] = [root, file]
+    
+    def _find_includes(self, content: str) -> List[str]:
+        """
+        Find all include statements in the content.
+        
+        Args:
+            content (str): The file content to analyze.
+            
+        Returns:
+            List[str]: List of included header files (excluding standard library headers).
+        """
+        includes = []
+        include_pattern = r'#include\s*[<"]([^>"]+)[>"]'
+        
+        for match in re.finditer(include_pattern, content):
+            include = match.group(1)
+            # Skip standard library headers
+            if include.split('/')[-1].split('.')[0] not in self._std_headers:
+                includes.append(include)
+                
+        return includes
+    
+    def _find_include_file(self, include: str) -> Optional[str]:
+        """
+        Find the full path of an included file in the project.
+        
+        Args:
+            include (str): The include statement to find.
+            
+        Returns:
+            Optional[str]: Full path to the included file if found, None otherwise.
+        """
+        # Try direct match first
+        if include in self._file_cache:
+            root, file = self._file_cache[include]
+            return os.path.join(root, file)
+            
+        # Try with different extensions
+        base_name = os.path.splitext(include)[0]
+        for ext in ['.h', '.hpp', '.cpp', '.cc', '.c']:
+            test_path = base_name + ext
+            if test_path in self._file_cache:
+                root, file = self._file_cache[test_path]
+                return os.path.join(root, file)
+                
+        return None
         
