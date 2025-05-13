@@ -61,6 +61,8 @@ class ContextBuilder:
             return self._build_file_scope_context(file_path, line_number, **kwargs)
         elif strategy == "project_scope":
             return self._build_project_scope_context(file_path, line_number, **kwargs)
+        elif strategy == "multiagent_scope":
+            return self._build_multiagent_scope_context(file_path, line_number, **kwargs)
         else:
             raise ValueError(f"Unsupported context building strategy: {strategy}")
     
