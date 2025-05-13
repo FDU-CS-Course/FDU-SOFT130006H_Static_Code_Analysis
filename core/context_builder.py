@@ -316,5 +316,59 @@ class ContextBuilder:
         except Exception as e:
             print(f"Error building project scope context: {str(e)}")
             return None
+    def _multiagent_context_builder(
+        self,
+        file_path: str,
+        line_number: int,
+        llm_config_name: str = "gpt-4o-mini",
+        # TODO: 更优雅地设计，可以解耦合Run_LLM后复用里面的函数
+        prompt_template_path: str = "./prompts/file_relationship_analysis.txt",
+        **kwargs
+    ) -> Optional[str]:
+
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                file_content = f.read()
+            # Find all the <#include> part
+            include_part = re.findall(r'<#include>(.*?)</#include>', file_content, re.DOTALL)
+            # exclude the standard library
+            include_part = [include_file for include_file in include_part if not include_file.startswith('<') and not include_file.endswith('>') and not include_file.startswith('"') and not include_file.endswith('"')]
+            designated_file_content = read_file_lines(file_path, 1, file_line_count)
+            relevant_content = []
+            
+            for include_file in include_part:
+                include_file_path = os.path.abspath(os.path.join(os.path.dirname(file_path), include_file))
+                include_file_content = read_file_lines(include_file_path, 1, file_line_count)
+                if not include_file_content:
+                    continue
+                
+                issue_content = {
+                'file_1': file_path,
+                'file_2': include_file_path
+                }   
+                           
+                with open(prompt_template_path, 'r', encoding='utf-8') as f:
+                    prompt_content = f.read()
+                # analyze the relationship between the two files
+                llm_result, response_metrics = llm_service.classify_issue(
+                issue_content=issue_content,
+                llm_name=llm_config_name,
+                # TODO: prompt_template貌似不应该是实际prompt内容
+                prompt_template=prompt_content
+            )
+                
+            relationship_summary = llm_result.get('relationship_summary')
+            if relationship_summary == "":
+                print(f"Error building multiagent scope context for this file: {file_path}")
+                continue
+            
+            relevant_content.append(relationship_summary)
+            return {
+                "designated_file_content": designated_file_content,
+                "relevant_content": relevant_content
+            }
+        except Exception as e:
+            print(f"Error building multiagent scope context: {str(e)}")
+            return None
         
         

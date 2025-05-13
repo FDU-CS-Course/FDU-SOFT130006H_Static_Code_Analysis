@@ -1,0 +1,12 @@
+You are a code review assistant. Analyze the relationship between the following two file, focus primarily on the code in File_1 that needs to reference classes/variables/any form of coupling from File_2. Based on the roles of these classes/variables, perform data flow/control flow analysis.:
+
+Issue details:
+File_1: {file_1}
+File_2: {file_2}
+
+Please provide your analysis in JSON format:
+```json
+{{
+    "relationship_summary": "your analysis",
+}}
+``` 
