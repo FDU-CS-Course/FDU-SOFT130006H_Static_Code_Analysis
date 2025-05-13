@@ -537,10 +537,7 @@ def get_llm_statistics(filters: Optional[Dict] = None) -> Dict[str, Any]:
                 SELECT 
                     COUNT(*) as total,
                     SUM(CASE WHEN lc.classification = i.true_classification THEN 1 ELSE 0 END) as correct
-                FROM llm_classifications lc
-                JOIN issues i ON lc.issue_id = i.id
-                WHERE i.true_classification IS NOT NULL
-                {' AND ' + ' AND '.join(f"lc.{k} = ?" for k in filters.keys()) if filters else ''}
+                {from_base}
             """, params)
             
             overall = cursor.fetchone()
@@ -646,6 +643,8 @@ def get_llm_statistics(filters: Optional[Dict] = None) -> Dict[str, Any]:
             }
     except sqlite3.Error as e:
         logger.error(f"Failed to get statistics: {e}")
+        import traceback
+        traceback.print_exc()
         raise
 
 def add_llm_response(
