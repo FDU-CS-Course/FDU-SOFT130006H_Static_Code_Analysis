@@ -59,6 +59,8 @@ class ContextBuilder:
             return self._build_function_scope_context(file_path, line_number, **kwargs)
         elif strategy == "file_scope":
             return self._build_file_scope_context(file_path, line_number, **kwargs)
+        elif strategy == "project_scope":
+            return self._build_project_scope_context(file_path, line_number, **kwargs)
         else:
             raise ValueError(f"Unsupported context building strategy: {strategy}")
     
@@ -272,3 +274,47 @@ class ContextBuilder:
             print(f"Error building file scope context: {str(e)}")
             # Fallback to fixed lines context on error
             return self._build_fixed_lines_context(file_path, line_number, **kwargs) 
+        
+    def _build_project_scope_context(
+        self,
+        file_path: str,
+        line_number: int,
+        **kwargs
+    ) -> Optional[str]:
+        """
+        According to the designated file, find all the relevant files (the file it included) and append it to the context.
+        
+        
+        Args:
+            file_path (str): The path of the file to be analyzed.
+            line_number (int): The line number of the issue.
+            
+        Returns:
+            Optional[str]: The extracted relevant context(the file itself and the files it included)
+        """
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                file_content = f.read()
+            # Find all the <#include> part
+            include_part = re.findall(r'<#include>(.*?)</#include>', file_content, re.DOTALL)
+            # exclude the standard library
+            include_part = [include_file for include_file in include_part if not include_file.startswith('<') and not include_file.endswith('>') and not include_file.startswith('"') and not include_file.endswith('"')]
+            designated_file_content = read_file_lines(file_path, 1, file_line_count)
+            relevant_content = []
+            
+            for include_file in include_part:
+                include_file_path = os.path.abspath(os.path.join(os.path.dirname(file_path), include_file))
+                include_file_content = read_file_lines(include_file_path, 1, file_line_count)
+                if not include_file_content:
+                    continue
+                prompt_prefix = f"This is the content of the file {include_file}:\n"
+                relevant_content.append(prompt_prefix + include_file_content)
+            return {
+                "designated_file_content": designated_file_content,
+                "relevant_content": relevant_content
+            }
+        except Exception as e:
+            print(f"Error building project scope context: {str(e)}")
+            return None
+        
+        
