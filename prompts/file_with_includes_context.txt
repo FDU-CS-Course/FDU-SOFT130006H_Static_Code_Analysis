@@ -1,0 +1,13 @@
+Project Scope Context:
+
+Main File: {main_file}
+Line: {line_number}
+Issue: {issue_summary}
+
+Source Code Context:
+{source_code_context}
+
+Included Files:
+{included_files_context}
+
+Note: Each included file is shown with its full path for reference. 

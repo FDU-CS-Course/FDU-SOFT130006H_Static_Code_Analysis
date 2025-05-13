@@ -130,9 +130,14 @@ review_helper/
             -   Reads the content of the specified `file_path` (validated to be within `project_root`).
             -   Extracts a code snippet around the `line_number` based on the chosen `strategy`.
             -   Possible strategies:
-                -   `fixed_lines`: N lines before and after the issue line.
-                -   `function_scope`: Intelligently extracts the entire function containing the issue by analyzing code structure.
-                -   `file_scope`: Extracts the entire file content with the issue line highlighted, with a configurable maximum line limit.
+                -   `fixed_lines`: Extracts a fixed number of lines before and after the issue line.
+                -   `function_scope`: Extracts the entire function containing the issue.
+                -   `file_scope`: Extracts the entire file content with the issue line highlighted, with a safety limit on maximum lines.
+                -   `file_with_includes`: Extracts the main file content and all relevant included files, excluding standard library headers. This strategy:
+                    - Maintains a cache of project files to avoid repeated directory traversals
+                    - Identifies and filters out standard library includes
+                    - Locates and includes content from project-specific header files
+                    - Uses a template-based approach for consistent context formatting
             -   Returns the extracted code context as a string with line numbers, or None if extraction fails.
             -   Includes comprehensive error handling with fallback to simpler strategies when needed.
 -   **`llm_service.py`**:
@@ -398,6 +403,11 @@ The primary database will be `db/issues.db`.
         - `fixed_lines`: Extracts a fixed number of lines before and after the issue line.
         - `function_scope`: Extracts the entire function containing the issue.
         - `file_scope`: Extracts the entire file content with the issue line highlighted, with a safety limit on maximum lines.
+        - `file_with_includes`: Extracts the main file content and all relevant included files, excluding standard library headers. This strategy:
+            - Maintains a cache of project files to avoid repeated directory traversals
+            - Identifies and filters out standard library includes
+            - Locates and includes content from project-specific header files
+            - Uses a template-based approach for consistent context formatting
 -   **Prompt Templating**: (NEW)
     -   Users can create and manage multiple prompt templates in `.txt` files within the `prompts/` directory.
     -   The `02_Run_LLM.py` page allows users to select which prompt template to use for a processing run, enabling experimentation with different prompting techniques.
