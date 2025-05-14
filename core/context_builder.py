@@ -8,6 +8,7 @@ based on different strategies (e.g., fixed number of lines, function scope).
 import os
 import re
 from typing import Optional, Dict, Any, Tuple, List, Set
+from core.llm_service import LLMService
 from utils.file_utils import is_path_safe, read_file_lines
 
 class ContextBuilder:
@@ -74,7 +75,7 @@ class ContextBuilder:
         elif strategy == "file_with_includes":
             return self._build_file_with_includes_context(file_path, line_number, **kwargs)
         elif strategy == "multiagent_scope":
-            return self._build_multiagent_scope_context(file_path, line_number, **kwargs)
+            return self._build_file_with_includes_context_using_multiagent(file_path, line_number, **kwargs)
         else:
             raise ValueError(f"Unsupported context building strategy: {strategy}")
     
@@ -343,7 +344,7 @@ class ContextBuilder:
             print(f"Error building file with includes context: {str(e)}")
             return None
 
-    def _multiagent_context_builder(
+    def _build_file_with_includes_context_using_multiagent(
         self,
         file_path: str,
         line_number: int,
@@ -352,6 +353,12 @@ class ContextBuilder:
         prompt_template_path: str = "./prompts/file_relationship_analysis.txt",
         **kwargs
     ) -> Optional[str]:
+        try:
+            llm_service = LLMService()
+        except Exception as e:
+            print(f"Error initializing LLM service: {str(e)}")
+            llm_service = None
+
 
         try:
             with open(file_path, 'r', encoding='utf-8') as f:
@@ -360,6 +367,7 @@ class ContextBuilder:
             include_part = re.findall(r'<#include>(.*?)</#include>', file_content, re.DOTALL)
             # exclude the standard library
             include_part = [include_file for include_file in include_part if not include_file.startswith('<') and not include_file.endswith('>') and not include_file.startswith('"') and not include_file.endswith('"')]
+            file_line_count = line_number
             designated_file_content = read_file_lines(file_path, 1, file_line_count)
             relevant_content = []
             
