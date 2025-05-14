@@ -149,7 +149,6 @@ review_helper/
         -   Key methods:
             -   `list_prompt_templates(prompts_dir: str = "prompts") -> List[str]`: Lists available prompt templates
             -   `classify_issue(issue_content: Dict[str, str], llm_name: str, prompt_template: str) -> Tuple[Dict[str, str], Dict[str, Any]]`: Main method for issue classification, returns both the classification result and detailed response metrics
-            -   `format_prompt(prompt_template: str, issue_content: Dict[str, str]) -> str`: Formats a prompt template with issue content
             -   `get_token_counts(text: str, model: str) -> Dict[str, int]`: Estimates token counts for a given text and model
     -   **Configuration Format** (`models.yaml`):
         ```yaml

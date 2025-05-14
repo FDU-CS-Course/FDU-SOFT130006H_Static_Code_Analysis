@@ -117,13 +117,15 @@ class LLMService:
     def classify_issue(self, 
                       issue_content: Dict[str, str], 
                       llm_name: str, 
-                      prompt_template: str) -> Tuple[Dict[str, str], Dict[str, Any]]:
+                      prompt_template: str,
+                      max_chars: int = 65536) -> Tuple[Dict[str, str], Dict[str, Any]]:
         """Classify an issue using specified LLM.
         
         Args:
             issue_content: Dictionary containing issue details
             llm_name: Name of LLM configuration to use
             prompt_template: Filename of the prompt template
+            max_chars: Maximum number of characters in the prompt
             
         Returns:
             Tuple containing:
@@ -153,6 +155,11 @@ class LLMService:
         
         # Format prompt with issue content
         formatted_prompt = prompt_content.format(**issue_content)
+        
+        if len(formatted_prompt) > max_chars:
+            print(f"Prompt is too long. Max characters: {max_chars}")
+            print(f"Prompt length: {len(formatted_prompt)}")
+            formatted_prompt = formatted_prompt[:max_chars] + "\n\n... (truncated)"
         
         # Dispatch to appropriate provider
         if config['provider'] == 'openai':
@@ -265,28 +272,6 @@ class LLMService:
             
         except Exception as e:
             raise RuntimeError(f"OpenAI API error: {str(e)}")
-            
-    def format_prompt(self, 
-                    prompt_template: str, 
-                    issue_content: Dict[str, str]) -> str:
-        """Format a prompt template with issue content.
-        
-        Args:
-            prompt_template: Filename of the prompt template
-            issue_content: Dictionary containing issue details
-            
-        Returns:
-            Formatted prompt string
-            
-        Raises:
-            ValueError: If prompt template not found
-        """
-        try:
-            prompt_template_path = os.path.join("prompts", prompt_template)
-            prompt_content = self.load_prompt_template(prompt_template_path)
-            return prompt_content.format(**issue_content)
-        except FileNotFoundError:
-            raise ValueError(f"Prompt template not found: {prompt_template}")
             
     def get_token_counts(self, text: str, model: str) -> Dict[str, int]:
         """Estimate token counts for a given text and model.
