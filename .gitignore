@@ -19,7 +19,7 @@ ENV/
 .env
 
 # Database
-db/*.db
+db/
 
 # IDE/Editor specific files
 .idea/
