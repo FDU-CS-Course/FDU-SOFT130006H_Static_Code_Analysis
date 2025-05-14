@@ -312,6 +312,7 @@ class ContextBuilder:
         try:
             # Validate file path
             if not is_path_safe(file_path, self.project_root):
+                print(f"File path is unsafe: {file_path}")
                 return None
                 
             # Build file cache if not already done
@@ -321,6 +322,7 @@ class ContextBuilder:
             # Read the main file
             main_file_content = read_file_lines(file_path, 1, float('inf'))
             if not main_file_content:
+                print(f"Failed to read main file: {file_path}")
                 return None
                 
             # Find all includes in the main file
@@ -335,24 +337,7 @@ class ContextBuilder:
                     if include_content:
                         included_files_context.append(f"\nIncluded File: {include_path}\n{include_content}")
             
-            # Format the context using the template
-            context = {
-                'main_file': file_path,
-                'line_number': line_number,
-                'issue_summary': kwargs.get('issue_summary', ''),
-                'source_code_context': main_file_content,
-                'included_files_context': '\n'.join(included_files_context)
-            }
-            
-            # Read and format the template
-            template_path = os.path.join('prompts', 'file_with_includes_context.txt')
-            if os.path.exists(template_path):
-                with open(template_path, 'r', encoding='utf-8') as f:
-                    template = f.read()
-                return template.format(**context)
-            else:
-                # Fallback to simple formatting if template not found
-                return f"Main File: {file_path}\nLine: {line_number}\n\nSource Code:\n{main_file_content}\n\nIncluded Files:\n{''.join(included_files_context)}"
+            return main_file_content + '\n' + '\n'.join(included_files_context)
                 
         except Exception as e:
             print(f"Error building file with includes context: {str(e)}")
