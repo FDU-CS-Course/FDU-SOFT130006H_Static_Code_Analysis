@@ -286,7 +286,7 @@ with col3:
     # Context strategy selection
     selected_strategy = st.selectbox(
         "Select Context Strategy",
-        options=["fixed_lines", "function_scope", "file_scope"],
+        options=["fixed_lines", "function_scope", "file_scope", "file_with_includes", "multiagent_scope"],
         index=0 if config.DEFAULT_CONTEXT_STRATEGY == "fixed_lines" else 1
     )
     
