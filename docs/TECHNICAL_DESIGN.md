@@ -151,58 +151,48 @@ review_helper/
             -   `classify_issue(issue_content: Dict[str, str], llm_name: str, prompt_template: str) -> Tuple[Dict[str, str], Dict[str, Any]]`: Main method for issue classification, returns both the classification result and detailed response metrics
             -   `format_prompt(prompt_template: str, issue_content: Dict[str, str]) -> str`: Formats a prompt template with issue content
             -   `get_token_counts(text: str, model: str) -> Dict[str, int]`: Estimates token counts for a given text and model
-    -   **Configuration Format** (`models.yaml`):
-        ```yaml
-        gpt4:
-          provider: openai
-          model: gpt-4
-          api_key_env: OPENAI_API_KEY  # API key stored in environment variable
-          
-        deepseek-v3:
-          provider: openai
-          model: deepseek-chat
-          api_key_env: DEEPSEEK_API_KEY
-          base_url: https://api.deepseek.com
-        ```
-    -   **Prompt Template Format**:
-        -   Stored as `.txt` files in `prompts/` directory
-        -   Uses Python string formatting for variable substitution
-        -   Expected response format: JSON wrapped in ```json code blocks
-        -   Example prompt template:
-            ```text
-            You are a code review assistant. Analyze the following cppcheck issue and classify it as either:
-            - "false positive": The issue is not a real problem
-            - "need fixing": The issue should be fixed but is not critical
-            - "very serious": The issue is critical and must be fixed immediately
 
-            Issue details:
-            File: {file}
-            Line: {line}
-            Severity: {severity}
-            ID: {id}
-            Summary: {summary}
-            Code Context:
-            {code_context}
+    -   **`llm_service.py`**:
+        -   **`LLMService` class**:
+            -   Redesigned with a layered API structure for better reusability:
+                -   **Layer 1: LLM Provider Wrapper**
+                    -   `generate_text(prompt: str, llm_name: str, **kwargs) -> Tuple[str, Dict[str, Any]]`: 
+                        - Low-level API that wraps around OpenAI (and potentially other providers)
+                        - Takes a raw prompt string and returns raw text response
+                        - Returns a tuple of (text_response, response_metrics)
+                        - Handles API calls, error handling, and response metrics collection
+                        - Can be reused by any system needing text generation capabilities
+                
+                -   **Layer 2: JSON Parsing and Schema Validation**
+                    -   `extract_json(text: str, schema: Dict[str, Any]) -> Dict[str, Any]`:
+                        - Extracts JSON from text response (handling code blocks)
+                        - Validates it against the provided schema
+                        - Returns parsed JSON that conforms to the schema
+                        - Raises appropriate errors for invalid JSON or schema violations
+                        - Reusable for any scenario requiring JSON extraction and validation
+                
+                -   **Layer 3: High-level Domain API**
+                    -   `classify_issue(issue_content: Dict[str, str], llm_name: str, prompt_template: str) -> Tuple[Dict[str, str], Dict[str, Any]]`: 
+                        - High-level API that composes the lower-level functions
+                        - Formats prompt using templates
+                        - Calls generate_text()
+                        - Processes response with extract_json()
+                        - Returns classification result and response metrics
+                        - Focused on the specific domain task of issue classification
+            
+            -   Additional utility and configuration methods:
+                -   `list_prompt_templates(prompts_dir: str = "prompts") -> List[str]`: Lists available prompt templates
+                -   `load_prompt_template(template_path: str) -> str`: Loads prompt template content
+                -   `format_prompt(prompt_template: str, issue_content: Dict[str, str]) -> str`: Formats a prompt template
+                -   `get_token_counts(text: str, model: str) -> Dict[str, int]`: Estimates token counts
+                -   `_load_llm_configurations() -> Dict[str, Any]`: Loads LLM configurations from YAML
 
-            Please provide your analysis in JSON format:
-            ```json
-            {
-                "classification": "one of: false positive, need fixing, very serious",
-                "explanation": "detailed explanation of your reasoning"
-            }
-            ```
-            ```
-        -   Example input dictionary:
-            ```python
-            {
-                "file": "src/main.cpp",
-                "line": "42",
-                "severity": "warning",
-                "id": "nullPointer",
-                "summary": "Possible null pointer dereference: ptr",
-                "code_context": "void process(int* ptr) {\n    if (ptr) {\n        *ptr = 42;\n    }\n}"
-            }
-            ```
+            -   This layered approach provides:
+                -   Clear separation of concerns
+                -   Improved reusability of lower-level components
+                -   Better testability of individual layers
+                -   Flexibility to adapt to different use cases and LLM providers
+                -   Maintainable codebase with focused, single-responsibility functions
 -   **`data_manager.py`**:
     -   Manages all interactions with the SQLite database (`db/issues.db`).
     -   Implements a context manager `get_db_connection()` for safe database connections.

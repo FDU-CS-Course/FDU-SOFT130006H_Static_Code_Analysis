@@ -42,18 +42,26 @@ Example input dictionary:
 
 import os
 import json
-from typing import Dict, List, Optional, Any, Tuple
+import re
+from typing import Dict, List, Optional, Any, Tuple, Union
 import yaml
 from pathlib import Path
 import openai
 from dotenv import load_dotenv
 import time
+import jsonschema
 
 # Load environment variables
 load_dotenv()
 
 class LLMService:
-    """Service class for handling LLM interactions and configurations."""
+    """Service class for handling LLM interactions and configurations.
+    
+    This class provides a layered API for LLM interactions:
+    1. Low-level text generation API (generate_text)
+    2. JSON extraction and validation API (extract_json)
+    3. High-level domain-specific API (classify_issue)
+    """
     
     def __init__(self, config_path: str = "models.yaml"):
         """Initialize LLM service with configurations.
@@ -63,6 +71,21 @@ class LLMService:
         """
         self.config_path = config_path
         self.llm_configs = self._load_llm_configurations()
+        
+        # Schema for classification results
+        self.classification_schema = {
+            "type": "object",
+            "required": ["classification", "explanation"],
+            "properties": {
+                "classification": {
+                    "type": "string",
+                    "enum": ["false positive", "need fixing", "very serious"]
+                },
+                "explanation": {
+                    "type": "string"
+                }
+            }
+        }
         
     def _load_llm_configurations(self) -> Dict[str, Any]:
         """Load LLM configurations from YAML file.
@@ -114,25 +137,50 @@ class LLMService:
         except FileNotFoundError:
             raise FileNotFoundError(f"Prompt template not found: {template_path}")
             
-    def classify_issue(self, 
-                      issue_content: Dict[str, str], 
-                      llm_name: str, 
-                      prompt_template: str) -> Tuple[Dict[str, str], Dict[str, Any]]:
-        """Classify an issue using specified LLM.
+    def format_prompt(self, template_path: str, issue_content: Dict[str, str]) -> str:
+        """Format a prompt template with issue content.
         
         Args:
+            template_path: Path or filename of the prompt template
             issue_content: Dictionary containing issue details
-            llm_name: Name of LLM configuration to use
-            prompt_template: Filename of the prompt template
+            
+        Returns:
+            Formatted prompt string
+            
+        Raises:
+            ValueError: If prompt template not found
+        """
+        try:
+            # If just a filename is provided, assume it's in the prompts directory
+            if not os.path.dirname(template_path):
+                template_path = os.path.join("prompts", template_path)
+                
+            prompt_content = self.load_prompt_template(template_path)
+            return prompt_content.format(**issue_content)
+        except FileNotFoundError:
+            raise ValueError(f"Prompt template not found: {template_path}")
+        except KeyError as e:
+            raise ValueError(f"Missing required field in issue_content: {e}")
+            
+    # Layer 1: Low-level text generation API
+    def generate_text(self, prompt: str, llm_name: str, **kwargs) -> Tuple[str, Dict[str, Any]]:
+        """Generate text using the specified LLM.
+        
+        This is a low-level API that wraps around LLM providers like OpenAI.
+        
+        Args:
+            prompt: The formatted prompt to send to the LLM
+            llm_name: Name of the LLM configuration to use
+            **kwargs: Additional parameters to pass to the LLM
             
         Returns:
             Tuple containing:
-              - Dictionary with classification and explanation
+              - Generated text response
               - Dictionary with response metrics (tokens, time, etc.)
             
         Raises:
             KeyError: If LLM configuration not found
-            ValueError: If required API key not set or prompt template not found
+            ValueError: If required API key not set
             RuntimeError: If LLM processing fails
         """
         if llm_name not in self.llm_configs:
@@ -144,42 +192,30 @@ class LLMService:
         if 'provider' not in config or 'model' not in config:
             raise ValueError(f"Invalid LLM configuration for {llm_name}. Missing provider or model.")
             
-        # Load the prompt template
-        try:
-            prompt_template_path = os.path.join("prompts", prompt_template)
-            prompt_content = self.load_prompt_template(prompt_template_path)
-        except FileNotFoundError:
-            raise ValueError(f"Prompt template not found: {prompt_template}")
-        
-        # Format prompt with issue content
-        formatted_prompt = prompt_content.format(**issue_content)
-        
         # Dispatch to appropriate provider
         if config['provider'] == 'openai':
-            return self._classify_with_openai(
-                formatted_prompt,
-                config
-            )
+            return self._generate_with_openai(prompt, config, **kwargs)
         else:
             raise ValueError(f"Unsupported LLM provider: {config['provider']}")
             
-    def _classify_with_openai(self, 
+    def _generate_with_openai(self, 
                             prompt: str, 
-                            config: Dict[str, Any]) -> Tuple[Dict[str, str], Dict[str, Any]]:
-        """Classify using OpenAI API.
+                            config: Dict[str, Any],
+                            **kwargs) -> Tuple[str, Dict[str, Any]]:
+        """Generate text using OpenAI API.
         
         Args:
             prompt: Formatted prompt
             config: OpenAI configuration dictionary
+            **kwargs: Additional parameters to pass to the OpenAI API
             
         Returns:
             Tuple containing:
-              - Dictionary with classification and explanation
+              - Generated text response
               - Dictionary with response metrics (tokens, time, etc.)
             
         Raises:
-            RuntimeError: If API call fails or response is invalid
-            json.JSONDecodeError: If response is not valid JSON
+            RuntimeError: If API call fails
         """
         # Get API key from config or environment variable
         api_key = config.get('api_key')
@@ -199,7 +235,8 @@ class LLMService:
             'model': config['model'],
             'temperature': config.get('temperature', 0.0),
             'max_tokens': config.get('max_tokens', 2000),
-            'top_p': config.get('top_p', 1.0)
+            'top_p': config.get('top_p', 1.0),
+            **kwargs  # Allow overriding with additional parameters
         }
         
         try:
@@ -223,7 +260,7 @@ class LLMService:
             # Extract content
             content = response.choices[0].message.content
             
-            # Get token usage from response
+            # Get token usage
             usage = {}
             if hasattr(response, 'usage'):
                 usage = {
@@ -232,61 +269,102 @@ class LLMService:
                     'total_tokens': response.usage.total_tokens
                 }
             
-            # Extract JSON from response
-            json_str = content.split("```json")[1].split("```")[0].strip()
+            # Prepare response metrics
+            response_metrics = {
+                'full_prompt': prompt,
+                'full_response': content,
+                'prompt_tokens': usage.get('prompt_tokens'),
+                'completion_tokens': usage.get('completion_tokens'),
+                'total_tokens': usage.get('total_tokens'),
+                'response_time_ms': response_time_ms,
+                'model_parameters': model_params
+            }
             
-            try:
-                result = json.loads(json_str)
-                if not isinstance(result, dict) or "classification" not in result or "explanation" not in result:
-                    raise ValueError("Invalid JSON structure")
-                    
-                # Validate classification value
-                valid_classifications = ["false positive", "need fixing", "very serious"]
-                if result["classification"] not in valid_classifications:
-                    raise ValueError(f"Invalid classification value: {result['classification']}")
-                
-                # Prepare response metrics
-                response_metrics = {
-                    'full_prompt': prompt,
-                    'full_response': content,
-                    'prompt_tokens': usage.get('prompt_tokens'),
-                    'completion_tokens': usage.get('completion_tokens'),
-                    'total_tokens': usage.get('total_tokens'),
-                    'response_time_ms': response_time_ms,
-                    'model_parameters': model_params
-                }
-                
-                return result, response_metrics
-                
-            except json.JSONDecodeError as e:
-                raise RuntimeError(f"Invalid JSON response from LLM: {str(e)}")
-            except ValueError as e:
-                raise RuntimeError(f"Invalid response structure: {str(e)}")
+            return content, response_metrics
             
         except Exception as e:
             raise RuntimeError(f"OpenAI API error: {str(e)}")
             
-    def format_prompt(self, 
-                    prompt_template: str, 
-                    issue_content: Dict[str, str]) -> str:
-        """Format a prompt template with issue content.
+    # Layer 2: JSON extraction and validation API
+    def extract_json(self, text: str, schema: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Extract and validate JSON from LLM response text.
         
         Args:
-            prompt_template: Filename of the prompt template
-            issue_content: Dictionary containing issue details
+            text: The text response from an LLM
+            schema: JSON schema for validation (optional)
             
         Returns:
-            Formatted prompt string
+            Parsed and validated JSON object
             
         Raises:
-            ValueError: If prompt template not found
+            ValueError: If JSON cannot be extracted or fails validation
+            json.JSONDecodeError: If text is not valid JSON
         """
+        # Try to extract JSON from code blocks first
+        json_match = re.search(r'```(?:json)?\s*([\s\S]*?)\s*```', text)
+        
+        if json_match:
+            json_str = json_match.group(1).strip()
+        else:
+            # If no code blocks, try to find JSON-like content with braces
+            brace_match = re.search(r'\{[\s\S]*\}', text)
+            if brace_match:
+                json_str = brace_match.group(0).strip()
+            else:
+                # If we still can't find JSON, use the entire response
+                json_str = text.strip()
+        
         try:
-            prompt_template_path = os.path.join("prompts", prompt_template)
-            prompt_content = self.load_prompt_template(prompt_template_path)
-            return prompt_content.format(**issue_content)
-        except FileNotFoundError:
-            raise ValueError(f"Prompt template not found: {prompt_template}")
+            result = json.loads(json_str)
+            
+            # Validate against schema if provided
+            if schema:
+                try:
+                    jsonschema.validate(instance=result, schema=schema)
+                except jsonschema.exceptions.ValidationError as e:
+                    raise ValueError(f"JSON validation failed: {str(e)}")
+                    
+            return result
+            
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Invalid JSON in response: {str(e)}")
+            
+    # Layer 3: High-level domain-specific API
+    def classify_issue(self, 
+                      issue_content: Dict[str, str], 
+                      llm_name: str, 
+                      prompt_template: str) -> Tuple[Dict[str, str], Dict[str, Any]]:
+        """Classify an issue using specified LLM.
+        
+        This is a high-level API that composes the lower-level functions.
+        
+        Args:
+            issue_content: Dictionary containing issue details
+            llm_name: Name of LLM configuration to use
+            prompt_template: Filename of the prompt template
+            
+        Returns:
+            Tuple containing:
+              - Dictionary with classification and explanation
+              - Dictionary with response metrics (tokens, time, etc.)
+            
+        Raises:
+            KeyError: If LLM configuration not found
+            ValueError: If required API key not set or prompt template not found
+            RuntimeError: If LLM processing fails
+        """
+        # Format prompt with issue content
+        formatted_prompt = self.format_prompt(prompt_template, issue_content)
+        
+        # Generate text using the LLM
+        response_text, response_metrics = self.generate_text(formatted_prompt, llm_name)
+        
+        # Extract and validate JSON from the response
+        try:
+            result = self.extract_json(response_text, self.classification_schema)
+            return result, response_metrics
+        except (ValueError, json.JSONDecodeError) as e:
+            raise RuntimeError(f"Failed to extract valid classification from LLM response: {str(e)}")
             
     def get_token_counts(self, text: str, model: str) -> Dict[str, int]:
         """Estimate token counts for a given text and model.
