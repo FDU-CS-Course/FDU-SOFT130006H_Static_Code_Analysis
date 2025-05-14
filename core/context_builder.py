@@ -326,6 +326,9 @@ class ContextBuilder:
             # Find all includes in the main file
             includes = self._find_includes(main_file_content)
             
+            # Remove duplicates
+            includes = list(set(includes))
+            
             # Build context for included files
             included_files_context = []
             for include in includes:
