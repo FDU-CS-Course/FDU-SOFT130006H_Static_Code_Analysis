@@ -1,18 +1,36 @@
 """
-Run LLM Page - Allows users to run LLM analysis on cppcheck issues.
+Run LLM Page - Allows users to run an LLM to classify cppcheck issues.
+
+This page provides functionality to:
+1. Select an LLM model to use
+2. Select a prompt template
+3. Select a context strategy
+4. Select which issues to process
+5. Start LLM processing
 """
 
 import os
-import streamlit as st
+import sys
 import time
-import pandas as pd
+import json
 import yaml
-from typing import List, Dict, Any, Optional
+import streamlit as st
+import pandas as pd
+from typing import Dict, Any, List, Set, Optional, Callable
+from datetime import datetime
 
 import config
-from core.data_manager import get_all_issues, get_issue_by_id, add_llm_classification
-from core.llm_service import LLMService
 from core.context_builder import ContextBuilder
+from core.llm_service import LLMService
+from core.data_manager import (
+    get_all_issues, 
+    get_issues_by_filters, 
+    add_llm_classification, 
+    get_issue_by_id,
+    get_all_issue_statuses,
+    get_all_issue_severities,
+    get_issue_counts_by_status
+)
 from utils.file_utils import is_path_safe
 
 # Page configuration
@@ -306,16 +324,27 @@ st.subheader("Select Issues to Process")
 
 # Load issues
 try:
-    all_issues = get_all_issues()
+    # Get available statuses directly from the database
+    status_options = list(get_all_issue_statuses())
     
     # Filter issues based on status
     status_filter = st.multiselect(
         "Filter by Status",
-        options=["pending_llm", "pending_review", "reviewed"],
-        default=["pending_llm"]
+        options=status_options,
+        default=["pending_llm"] if "pending_llm" in status_options else []
     )
     
-    filtered_issues = [issue for issue in all_issues if issue['status'] in status_filter]
+    # Get status counts to show how many issues are available
+    status_counts = get_issue_counts_by_status()
+    for status in status_filter:
+        st.info(f"Available {status} issues: {status_counts.get(status, 0)}")
+    
+    if not status_filter:
+        st.warning("Please select at least one status to continue")
+        st.stop()
+    
+    # Get filtered issues
+    filtered_issues = get_issues_by_filters(statuses=set(status_filter) if status_filter else None)
     
     # Create DataFrame for display
     if filtered_issues:

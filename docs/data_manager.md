@@ -156,6 +156,86 @@ errors = get_all_issues({'severity': 'error'})
 print(f"Error issues: {len(errors)}")
 ```
 
+#### `get_issue_count() -> int`
+
+Retrieves the total count of issues in the database.
+
+**Returns:**
+- Integer count of issues.
+
+**Raises:**
+- `sqlite3.Error`: If a database error occurs.
+
+```python
+from core.data_manager import get_issue_count
+
+# Get total issue count
+count = get_issue_count()
+print(f"Total issues: {count}")
+```
+
+#### `get_issue_counts_by_status() -> Dict[str, int]`
+
+Retrieves the count of issues grouped by status.
+
+**Returns:**
+- Dictionary with status as key and count as value.
+
+**Raises:**
+- `sqlite3.Error`: If a database error occurs.
+
+```python
+from core.data_manager import get_issue_counts_by_status
+
+# Get counts by status
+status_counts = get_issue_counts_by_status()
+print(f"Pending LLM: {status_counts.get('pending_llm', 0)}")
+print(f"Pending Review: {status_counts.get('pending_review', 0)}")
+print(f"Reviewed: {status_counts.get('reviewed', 0)}")
+```
+
+#### `get_issue_counts_by_severity() -> Dict[str, int]`
+
+Retrieves the count of issues grouped by severity.
+
+**Returns:**
+- Dictionary with severity as key and count as value.
+
+**Raises:**
+- `sqlite3.Error`: If a database error occurs.
+
+```python
+from core.data_manager import get_issue_counts_by_severity
+
+# Get counts by severity
+severity_counts = get_issue_counts_by_severity()
+print(f"Errors: {severity_counts.get('error', 0)}")
+print(f"Warnings: {severity_counts.get('warning', 0)}")
+```
+
+#### `get_issues_summary() -> Dict[str, Dict[str, int]]`
+
+Retrieves a complete summary of issue counts by status and severity.
+
+**Returns:**
+- Dictionary with:
+  - `total`: Total issue count
+  - `by_status`: Dictionary with status counts
+  - `by_severity`: Dictionary with severity counts
+
+**Raises:**
+- `sqlite3.Error`: If a database error occurs.
+
+```python
+from core.data_manager import get_issues_summary
+
+# Get comprehensive summary
+summary = get_issues_summary()
+print(f"Total issues: {summary['total']}")
+print(f"By status: {summary['by_status']}")
+print(f"By severity: {summary['by_severity']}")
+```
+
 ### LLM Classification Management
 
 #### `add_llm_classification(issue_id: int, llm_model_name: str, context_strategy: str, prompt_template: str, source_code_context: str, classification: str, explanation: Optional[str] = None) -> int`

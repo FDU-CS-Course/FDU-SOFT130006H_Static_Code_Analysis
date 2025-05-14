@@ -286,6 +286,120 @@ def get_all_issues(filters: Optional[Dict] = None) -> List[Dict[str, Any]]:
         logger.error(f"Failed to get issues: {e}")
         raise
 
+def get_issue_count() -> int:
+    """
+    Retrieve the total count of issues in the database.
+    
+    Returns:
+        int: The total number of issues.
+        
+    Raises:
+        sqlite3.Error: If a database error occurs.
+    """
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT COUNT(*) as count FROM issues")
+            result = cursor.fetchone()
+            return result['count']
+    except sqlite3.Error as e:
+        logger.error(f"Failed to get issue count: {e}")
+        raise
+
+def get_issue_counts_by_status() -> Dict[str, int]:
+    """
+    Retrieve the count of issues grouped by status.
+    
+    Returns:
+        Dict[str, int]: Dictionary with status as key and count as value.
+        
+    Raises:
+        sqlite3.Error: If a database error occurs.
+    """
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT status, COUNT(*) as count 
+                FROM issues 
+                GROUP BY status
+            """)
+            results = cursor.fetchall()
+            return {row['status']: row['count'] for row in results}
+    except sqlite3.Error as e:
+        logger.error(f"Failed to get issue counts by status: {e}")
+        raise
+
+def get_issue_counts_by_severity() -> Dict[str, int]:
+    """
+    Retrieve the count of issues grouped by severity.
+    
+    Returns:
+        Dict[str, int]: Dictionary with severity as key and count as value.
+        
+    Raises:
+        sqlite3.Error: If a database error occurs.
+    """
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT cppcheck_severity, COUNT(*) as count 
+                FROM issues 
+                GROUP BY cppcheck_severity
+            """)
+            results = cursor.fetchall()
+            return {row['cppcheck_severity']: row['count'] for row in results}
+    except sqlite3.Error as e:
+        logger.error(f"Failed to get issue counts by severity: {e}")
+        raise
+
+def get_issues_summary() -> Dict[str, Any]:
+    """
+    Retrieve a complete summary of issue counts by status and severity.
+    
+    Returns:
+        Dict[str, Any]: Dictionary with:
+            - 'total': Total issue count
+            - 'by_status': Dictionary with status counts
+            - 'by_severity': Dictionary with severity counts
+        
+    Raises:
+        sqlite3.Error: If a database error occurs.
+    """
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            
+            # Get total count
+            cursor.execute("SELECT COUNT(*) as count FROM issues")
+            total = cursor.fetchone()['count']
+            
+            # Get counts by status
+            cursor.execute("""
+                SELECT status, COUNT(*) as count 
+                FROM issues 
+                GROUP BY status
+            """)
+            status_counts = {row['status']: row['count'] for row in cursor.fetchall()}
+            
+            # Get counts by severity
+            cursor.execute("""
+                SELECT cppcheck_severity, COUNT(*) as count 
+                FROM issues 
+                GROUP BY cppcheck_severity
+            """)
+            severity_counts = {row['cppcheck_severity']: row['count'] for row in cursor.fetchall()}
+            
+            return {
+                'total': total,
+                'by_status': status_counts,
+                'by_severity': severity_counts
+            }
+    except sqlite3.Error as e:
+        logger.error(f"Failed to get issues summary: {e}")
+        raise
+
 def add_llm_classification(
     issue_id: int, 
     llm_model_name: str, 

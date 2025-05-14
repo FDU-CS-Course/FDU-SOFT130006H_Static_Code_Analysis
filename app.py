@@ -6,7 +6,7 @@ This is the main application entry point.
 
 import os
 import streamlit as st
-from core.data_manager import init_db, get_all_issues
+from core.data_manager import init_db, get_issues_summary, get_all_issues, get_issue_count
 import config
 
 # Page configuration
@@ -35,17 +35,14 @@ with st.sidebar:
     # Display issue counts
     st.subheader("Issue Summary")
     try:
-        all_issues = get_all_issues()
+        # Get issue summary from database - more efficient than loading all issues
+        summary = get_issues_summary()
         
-        # Count issues by status
-        pending_llm = sum(1 for issue in all_issues if issue["status"] == "pending_llm")
-        pending_review = sum(1 for issue in all_issues if issue["status"] == "pending_review")
-        reviewed = sum(1 for issue in all_issues if issue["status"] == "reviewed")
-        
-        st.metric("Total Issues", len(all_issues))
-        st.metric("Pending LLM", pending_llm)
-        st.metric("Pending Review", pending_review)
-        st.metric("Reviewed", reviewed)
+        # Display metrics using database-computed values
+        st.metric("Total Issues", summary['total'])
+        st.metric("Pending LLM", summary['by_status'].get('pending_llm', 0))
+        st.metric("Pending Review", summary['by_status'].get('pending_review', 0))
+        st.metric("Reviewed", summary['by_status'].get('reviewed', 0))
     except Exception as e:
         st.error(f"Error loading issue statistics: {str(e)}")
 
@@ -74,8 +71,8 @@ if not config.PROJECT_ROOT_DIR:
     
 # Check if database exists but has no issues
 try:
-    all_issues = get_all_issues()
-    if len(all_issues) == 0:
+    issue_count = get_issue_count()
+    if issue_count == 0:
         st.info("No issues found in the database. Start by loading issues from a cppcheck CSV file.")
         
         # Add a button to navigate to the load issues page

@@ -1,16 +1,30 @@
 """
-Statistics Page - Displays statistics about LLM performance and issues.
+Statistics Page - Displays statistics and metrics about LLM performance.
+
+This page provides visualizations and data about:
+- Overall LLM accuracy
+- Performance of different context building strategies
+- Success rates of different prompt templates
+- Distribution of classifications
 """
 
 import streamlit as st
 import pandas as pd
+import altair as alt
 import plotly.express as px
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
 import json
 from typing import Dict, Any, List, Optional
 
-from core.data_manager import get_llm_statistics, get_all_issues
+from core.data_manager import (
+    get_llm_statistics, 
+    get_issue_count,
+    get_issue_counts_by_status,
+    get_issue_counts_by_severity,
+    get_issues_summary,
+    get_all_issues
+)
 
 # Page configuration
 st.set_page_config(
@@ -38,11 +52,9 @@ def format_percentage(value: float) -> str:
 
 # Load data
 try:
-    # Get all issues for reference
-    all_issues = get_all_issues()
-    
-    # Calculate basic issue stats
-    total_issues = len(all_issues)
+    # Get basic issue stats using optimized database calls
+    issues_summary = get_issues_summary()
+    total_issues = issues_summary['total']
     
     if total_issues == 0:
         st.warning("No issues found in the database. Please load issues and run LLM analysis first.")
@@ -69,11 +81,13 @@ try:
         min_date = datetime.now() - timedelta(days=30)  # Default to last 30 days
         max_date = datetime.now()
         
-        if all_issues:
+        if issues_summary['total'] > 0:
             try:
+                # Since we need date info, we'll get just a few issues to find the date range
+                sample_issues = get_all_issues()[:5]  # Just get a few issues to see date range
                 # Try to parse dates from created_at
                 dates = [datetime.fromisoformat(issue['created_at'].replace('Z', '+00:00')) 
-                         for issue in all_issues if 'created_at' in issue]
+                        for issue in sample_issues if 'created_at' in issue]
                 if dates:
                     min_date = min(dates)
                     max_date = max(dates)

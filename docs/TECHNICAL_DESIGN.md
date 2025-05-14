@@ -439,7 +439,50 @@ The primary database will be `db/issues.db`.
 -   For wider access, it can be deployed using Streamlit Sharing, Docker, or other common Python web app deployment methods.
 -   Ensure `PROJECT_ROOT_DIR` and API keys are configured correctly in the deployment environment.
 
-## 10. Future Enhancements (Optional)
+## 10. Database Optimization
+
+### 10.1. Identified Issues
+
+The initial implementation of the application loaded all issues from the database using `get_all_issues()` and then performed filtering and counting operations in Python. This approach had several performance issues:
+
+1. **Performance Degradation with Scale**: As the number of issues increases, loading all data into memory becomes less efficient.
+2. **Redundant Data Transfer**: The entire issue data (including classifications) was loaded even when only counts or summary statistics were needed.
+3. **Inefficient Filtering**: Filtering was performed in Python instead of using SQL's built-in filtering capabilities.
+
+### 10.2. Optimization Approach
+
+To address these issues, specialized database interface functions were implemented:
+
+1. **Targeted Queries**: Created specialized functions that return only the specific data needed (counts, summaries, etc.).
+2. **Database-Level Aggregation**: Moved aggregation operations (counting, grouping) to SQL queries rather than Python.
+3. **Efficient Filtering**: Leveraged SQL's WHERE clauses for filtering instead of Python-level filtering.
+
+### 10.3. Implemented Optimizations
+
+The following optimized database interface functions were added:
+
+- `get_issue_count()`: Returns just the total count of issues.
+- `get_issue_counts_by_status()`: Returns counts of issues grouped by status.
+- `get_issue_counts_by_severity()`: Returns counts of issues grouped by severity.
+- `get_issues_summary()`: Returns comprehensive summary statistics in a single query.
+
+These optimizations significantly improve performance in the following areas:
+
+1. **Sidebar Statistics**: The main application sidebar now shows issue counts without loading all issues.
+2. **Load Issues Page**: Displays issue statistics using efficient database-level aggregation.
+3. **Run LLM Page**: Uses specialized filtering functions for issue selection.
+4. **Statistics Page**: Uses optimized database calls for summary statistics.
+
+### 10.4. Performance Impact
+
+This optimization has the following benefits:
+
+1. **Reduced Memory Usage**: The application no longer loads all issues into memory when only summary data is needed.
+2. **Faster Page Loading**: Pages that display statistics load faster due to reduced data transfer.
+3. **Better Scalability**: The application can handle larger datasets more efficiently.
+4. **Reduced Database Load**: Fewer and more efficient queries reduce the load on the database.
+
+## 11. Future Enhancements (Optional)
 
 -   **Batch Processing**: Option to trigger LLM classification for all pending issues in a batch.
 -   **Advanced Context Building**: Implement context strategies based on Abstract Syntax Tree (AST) parsing for more precise code snippets.

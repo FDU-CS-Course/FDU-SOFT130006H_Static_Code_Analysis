@@ -17,7 +17,7 @@ import logging
 from typing import List, Dict, Any, Optional
 
 from core.issue_parser import parse_cppcheck_csv
-from core.data_manager import add_issues, get_all_issues
+from core.data_manager import add_issues, get_all_issues, get_issue_count, get_issue_counts_by_status, get_issue_counts_by_severity
 
 # Configure logger
 logger = logging.getLogger(__name__)
@@ -38,13 +38,12 @@ tab1, tab2 = st.tabs(["Upload CSV File", "Specify CSV Path"])
 
 # Get existing issues for reference
 try:
-    logger.debug("Fetching existing issues from database")
-    existing_issues = get_all_issues()
-    existing_count = len(existing_issues)
+    logger.debug("Fetching existing issues count from database")
+    existing_count = get_issue_count()
     logger.info(f"Found {existing_count} existing issues in database")
 except Exception as e:
-    logger.error(f"Failed to load existing issues: {str(e)}", exc_info=True)
-    st.error(f"Error loading existing issues: {str(e)}")
+    logger.error(f"Failed to load existing issues count: {str(e)}", exc_info=True)
+    st.error(f"Error loading existing issues count: {str(e)}")
     existing_count = 0
 
 def parse_and_preview_issues(source: Any, is_file_path: bool = False) -> Optional[List[Dict[str, Any]]]:
@@ -188,45 +187,59 @@ if existing_count > 0:
     st.subheader("Existing Issues")
     logger.debug("Preparing to display existing issues summary")
     
-    # Create a DataFrame for display
-    existing_df = pd.DataFrame([{
-        'ID': issue['id'],
-        'File': issue['cppcheck_file'],
-        'Line': issue['cppcheck_line'],
-        'Severity': issue['cppcheck_severity'],
-        'Status': issue['status'],
-        'Added': issue['created_at']
-    } for issue in existing_issues])
+    # Get status and severity counts directly from the database
+    status_counts_dict = get_issue_counts_by_status()
+    severity_counts_dict = get_issue_counts_by_severity()
     
-    # Group by status and severity for summary
-    status_counts = existing_df['Status'].value_counts().reset_index()
-    severity_counts = existing_df['Severity'].value_counts().reset_index()
+    # Convert to DataFrame for display
+    status_counts_df = pd.DataFrame([
+        {"Status": status, "Count": count} 
+        for status, count in status_counts_dict.items()
+    ])
     
-    logger.debug(f"Status counts: {status_counts.to_dict()}")
-    logger.debug(f"Severity counts: {severity_counts.to_dict()}")
+    severity_counts_df = pd.DataFrame([
+        {"Severity": severity, "Count": count} 
+        for severity, count in severity_counts_dict.items()
+    ])
+    
+    logger.debug(f"Status counts: {status_counts_dict}")
+    logger.debug(f"Severity counts: {severity_counts_dict}")
     
     # Display summary metrics
     col1, col2 = st.columns(2)
     
     with col1:
         st.subheader("Issues by Status")
-        st.dataframe(status_counts.rename(columns={'index': 'Status', 'Status': 'Count'}))
+        st.dataframe(status_counts_df)
     
     with col2:
         st.subheader("Issues by Severity")
-        st.dataframe(severity_counts.rename(columns={'index': 'Severity', 'Severity': 'Count'}))
+        st.dataframe(severity_counts_df)
     
     # Display the full dataframe with filters
     with st.expander("Show All Issues"):
+        # Get issues data for the dataframe
+        all_issues = get_all_issues()
+        
+        # Create a DataFrame for display
+        existing_df = pd.DataFrame([{
+            'ID': issue['id'],
+            'File': issue['cppcheck_file'],
+            'Line': issue['cppcheck_line'],
+            'Severity': issue['cppcheck_severity'],
+            'Status': issue['status'],
+            'Added': issue['created_at']
+        } for issue in all_issues])
+        
         # Add filters
         col1, col2 = st.columns(2)
         with col1:
             status_filter = st.multiselect("Filter by Status", 
-                                          options=sorted(existing_df['Status'].unique()),
+                                          options=sorted(status_counts_dict.keys()),
                                           default=[])
         with col2:
             severity_filter = st.multiselect("Filter by Severity", 
-                                            options=sorted(existing_df['Severity'].unique()),
+                                            options=sorted(severity_counts_dict.keys()),
                                             default=[])
         
         # Apply filters
