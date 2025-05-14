@@ -402,7 +402,7 @@ class ContextBuilder:
             relationship_summary = llm_result.get('relationship_summary')
             if relationship_summary == "":
                 print(f"Error building multiagent scope context for this file: {file_path}")
-                continue
+                return None
             
             relevant_content.append(relationship_summary)
             return {
