@@ -1,4 +1,4 @@
-You are a code review assistant. Analyze the relationship between the following two file, focus primarily on the code in File_1 that needs to reference classes/variables/any form of coupling from File_2. Based on the roles of these classes/variables, perform data flow/control flow analysis.:
+You are a code review assistant. Analyze the relationship between the following two file, focus primarily on the code in File_1 that needs to reference classes/variables/any form of coupling from File_2. Based on the roles of these classes/variables, perform data flow/control flow analysis in 1000 words.:
 
 Issue details:
 File_1: {file_1}

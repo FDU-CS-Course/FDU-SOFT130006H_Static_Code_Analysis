@@ -361,17 +361,35 @@ class ContextBuilder:
 
 
         try:
-            with open(file_path, 'r', encoding='utf-8') as f:
-                file_content = f.read()
-            # Find all the <#include> part
-            include_part = re.findall(r'<#include>(.*?)</#include>', file_content, re.DOTALL)
-            # exclude the standard library
-            include_part = [include_file for include_file in include_part if not include_file.startswith('<') and not include_file.endswith('>') and not include_file.startswith('"') and not include_file.endswith('"')]
+            
+                        # Validate file path
+            if not is_path_safe(file_path, self.project_root):
+                print(f"File path is unsafe: {file_path}")
+                return None
+                
+            # Build file cache if not already done
+            if not self._file_cache:
+                self._build_file_cache()
+            
+            # Read the main file
+            main_file_content = read_file_lines(file_path, 1, float('inf'))
+            if not main_file_content:
+                print(f"Failed to read main file: {file_path}")
+                return None
+                
+            # Find all includes in the main file
+            includes = self._find_includes(main_file_content)
+            
+            
+            
+        
             file_line_count = line_number
             designated_file_content = read_file_lines(file_path, 1, file_line_count)
-            relevant_content = []
+
+            # Build context for included files
+            included_files_context = []
             
-            for include_file in include_part:
+            for include_file in includes:
                 include_file_path = os.path.abspath(os.path.join(os.path.dirname(file_path), include_file))
                 include_file_content = read_file_lines(include_file_path, 1, file_line_count)
                 if not include_file_content:
@@ -382,14 +400,12 @@ class ContextBuilder:
                 'file_2': include_file_path
                 }   
                            
-                with open(prompt_template_path, 'r', encoding='utf-8') as f:
-                    prompt_content = f.read()
                 # analyze the relationship between the two files
                 llm_result, response_metrics = llm_service.classify_issue(
                 issue_content=issue_content,
                 llm_name=llm_config_name,
                 # TODO: prompt_template貌似不应该是实际prompt内容
-                prompt_template=prompt_content
+                prompt_template=prompt_template_path
             )
                 
             relationship_summary = llm_result.get('relationship_summary')
@@ -397,10 +413,10 @@ class ContextBuilder:
                 print(f"Error building multiagent scope context for this file: {file_path}")
                 return None
             
-            relevant_content.append(relationship_summary)
+            included_files_context.append(relationship_summary)
             return {
                 "designated_file_content": designated_file_content,
-                "relevant_content": relevant_content
+                "relevant_content": included_files_context
             }
         except Exception as e:
             print(f"Error building multiagent scope context: {str(e)}")
